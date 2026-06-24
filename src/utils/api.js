@@ -37,6 +37,26 @@ export async function getIPInfo() {
   return data;
 }
 
+export async function mikrotikTest({ host, port, username, password }) {
+  const { data } = await api.post('/api/mikrotik/test', { host, port, username, password });
+  return data;
+}
+
+export async function snmpCheck({ host, community, port, version }) {
+  const { data } = await api.post('/api/snmp/check', { host, community, port, version });
+  return data;
+}
+
+export async function checkHTTPHeaders(url) {
+  const { data } = await api.get('/api/http-headers', { params: { url } });
+  return data;
+}
+
+export async function checkSSLCert(host, port = 443) {
+  const { data } = await api.get('/api/ssl-cert', { params: { host, port } });
+  return data;
+}
+
 export async function fetchPublicIPInfo() {
   try {
     const { data } = await axios.get('https://ipapi.co/json/', { timeout: 10000 });

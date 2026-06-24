@@ -6,6 +6,10 @@ import DNSLookup from './DNSLookup';
 import Whois from './Whois';
 import Traceroute from './Traceroute';
 import IPInfo from './IPInfo';
+import MikrotikChecker from './MikrotikChecker';
+import HTTPHeaders from './HTTPHeaders';
+import SSLChecker from './SSLChecker';
+import SNMPChecker from './SNMPChecker';
 
 export default function NetworkTools() {
   return (
@@ -17,6 +21,10 @@ export default function NetworkTools() {
       <Route path="whois" element={<Whois />} />
       <Route path="traceroute" element={<Traceroute />} />
       <Route path="ip-info" element={<IPInfo />} />
+      <Route path="mikrotik" element={<MikrotikChecker />} />
+      <Route path="http-headers" element={<HTTPHeaders />} />
+      <Route path="ssl-cert" element={<SSLChecker />} />
+      <Route path="snmp" element={<SNMPChecker />} />
     </Routes>
   );
 }

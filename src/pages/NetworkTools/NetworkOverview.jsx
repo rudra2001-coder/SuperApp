@@ -7,6 +7,10 @@ const tools = [
   { path: 'whois', label: 'WHOIS', desc: 'Lookup domain registration', icon: '🏛️' },
   { path: 'traceroute', label: 'Traceroute', desc: 'Trace network path', icon: '🗺️' },
   { path: 'ip-info', label: 'IP Info', desc: 'Your public IP & geolocation', icon: '🖥️' },
+  { path: 'mikrotik', label: 'MikroTik Checker', desc: 'Test API credentials & system info', icon: '🔐' },
+  { path: 'http-headers', label: 'HTTP Headers', desc: 'Inspect HTTP response headers', icon: '🌐' },
+  { path: 'ssl-cert', label: 'SSL Certificate', desc: 'Check SSL cert validity & details', icon: '🔒' },
+  { path: 'snmp', label: 'SNMP Checker', desc: 'Test SNMP & retrieve system info', icon: '📡' },
 ];
 
 export default function NetworkOverview() {
