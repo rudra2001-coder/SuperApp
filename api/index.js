@@ -1,0 +1,595 @@
+const express = require('express');
+const cors = require('cors');
+const dns = require('dns');
+const net = require('net');
+const whois = require('whois');
+const { RouterOSClient } = require('mikro-routeros');
+const snmp = require('net-snmp');
+const https = require('https');
+const http = require('http');
+const tls = require('tls');
+
+const isServerless = !process.env.PORT || !!process.env.VERCEL;
+
+function execAsync(cmd, opts = {}) {
+  if (isServerless) return Promise.reject(new Error('exec not available in serverless'));
+  return new Promise((resolve, reject) => {
+    const { exec } = require('child_process');
+    exec(cmd, { timeout: 10000, ...opts }, (err, stdout, stderr) => {
+      if (err) reject(Object.assign(new Error(err.message), { stdout, stderr }));
+      else resolve({ stdout, stderr });
+    });
+  });
+}
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+app.post('/api/ping', async (req, res) => {
+  const { target, count = 4 } = req.body;
+  if (!target) return res.status(400).json({ error: 'Target is required' });
+  if (isServerless) {
+    return res.json({ status: 'simulated', note: 'Real ping not available in serverless. Using simulated data.', sent: count, received: count, loss: '0%', times: Array.from({ length: count }, () => 10 + Math.random() * 190), min: 0, max: 0, avg: 0 });
+  }
+  try {
+    const cmd = process.platform === 'win32' ? `ping -n ${count} ${target}` : `ping -c ${count} ${target}`;
+    const { stdout } = await execAsync(cmd);
+    const lines = stdout.split('\n');
+    const times = [];
+    lines.forEach(line => {
+      const match = line.match(/time[=<](\d+\.?\d*)\s*ms/i);
+      if (match) times.push(parseFloat(match[1]));
+    });
+    const lost = lines.find(l => l.includes('loss')) || '';
+    const lossMatch = lost.match(/(\d+)%/);
+    res.json({
+      status: times.length > 0 ? 'reachable' : 'unreachable',
+      sent: count, received: times.length,
+      loss: lossMatch ? lossMatch[1] + '%' : '0%', times,
+      min: times.length ? Math.min(...times) : null,
+      max: times.length ? Math.max(...times) : null,
+      avg: times.length ? (times.reduce((a, b) => a + b, 0) / times.length) : null,
+    });
+  } catch {
+    res.json({ status: 'unreachable', sent: count, received: 0, loss: '100%', times: [] });
+  }
+});
+
+app.post('/api/scan-port', async (req, res) => {
+  const { target, ports } = req.body;
+  if (!target || !ports) return res.status(400).json({ error: 'Target and ports required' });
+  const results = [];
+  for (const port of ports) {
+    try {
+      await new Promise((resolve, reject) => {
+        const socket = new net.Socket();
+        socket.setTimeout(2000);
+        socket.on('connect', () => {
+          results.push({ port, status: 'open' });
+          socket.destroy();
+          resolve();
+        });
+        socket.on('timeout', () => {
+          results.push({ port, status: 'filtered' });
+          socket.destroy();
+          reject();
+        });
+        socket.on('error', () => {
+          results.push({ port, status: 'closed' });
+          reject();
+        });
+        socket.connect(port, target);
+      });
+    } catch {}
+  }
+  res.json({ target, results });
+});
+
+app.get('/api/dns', (req, res) => {
+  const { domain } = req.query;
+  if (!domain) return res.status(400).json({ error: 'Domain required' });
+  const types = ['A', 'AAAA', 'MX', 'TXT', 'CNAME', 'NS'];
+  const results = [];
+  let pending = types.length;
+  types.forEach(type => {
+    dns.resolve(domain, type, (err, addresses) => {
+      if (!err && addresses) {
+        addresses.forEach(addr => {
+          results.push({ type, name: domain, value: typeof addr === 'object' ? JSON.stringify(addr) : String(addr), ttl: 300 });
+        });
+      }
+      pending--;
+      if (pending === 0) res.json({ domain, records: results });
+    });
+  });
+});
+
+app.get('/api/whois', (req, res) => {
+  const { query } = req.query;
+  if (!query) return res.status(400).json({ error: 'Query required' });
+  whois.lookup(query, (err, data) => {
+    if (err) return res.status(500).json({ error: err.message });
+    const lines = data.split('\n').filter(l => l.trim());
+    const fields = {};
+    lines.forEach(line => {
+      const idx = line.indexOf(':');
+      if (idx > 0) {
+        const key = line.substring(0, idx).trim().toLowerCase().replace(/\s+/g, '_');
+        const val = line.substring(idx + 1).trim();
+        if (!fields[key]) fields[key] = val;
+      }
+    });
+    res.json({ query, data: fields });
+  });
+});
+
+app.get('/api/traceroute', async (req, res) => {
+  const { target } = req.query;
+  if (!target) return res.status(400).json({ error: 'Target required' });
+  if (isServerless) return res.json({ target, hops: [], note: 'Traceroute requires shell access — not available in serverless.' });
+  try {
+    const cmd = process.platform === 'win32' ? `tracert -d ${target}` : `traceroute -n ${target}`;
+    const { stdout } = await execAsync(cmd, { timeout: 30000 });
+    const lines = stdout.split('\n');
+    const hops = [];
+    lines.forEach(line => {
+      const match = line.match(/^\s*(\d+)\s+<?(\d+\.\d+\.\d+\.\d+|\*)\s+/);
+      if (match) {
+        hops.push({
+          hop: parseInt(match[1]),
+          ip: match[2] === '*' ? 'Request timed out' : match[2],
+          rtt: match[2] === '*' ? '*' : (line.match(/<?(\d+\.?\d*)\s*ms/) || [])[1] || '*',
+        });
+      }
+    });
+    res.json({ target, hops });
+  } catch { res.json({ target, hops: [], note: 'Traceroute failed' }); }
+});
+
+app.get('/api/ip-info', async (req, res) => {
+  try {
+    const response = await fetch('https://ipapi.co/json/');
+    const data = await response.json();
+    res.json(data);
+  } catch {
+    try {
+      const response = await fetch('https://ip-api.com/json/');
+      const data = await response.json();
+      res.json({
+        ip: data.query,
+        city: data.city,
+        region: data.regionName,
+        country: data.country,
+        org: data.isp,
+        timezone: data.timezone,
+        asn: data.as,
+        latitude: data.lat,
+        longitude: data.lon,
+      });
+    } catch {
+      res.json({ error: 'Could not fetch IP info' });
+    }
+  }
+});
+
+// === MIKROTIK API CHECKER ===
+app.post('/api/mikrotik/test', async (req, res) => {
+  const { host, port = 8728, username, password } = req.body;
+  if (!host || !username || !password) return res.status(400).json({ error: 'Host, username, and password are required' });
+
+  const diagnostics = [];
+  const addDiag = (phase, status, message, detail = null) => {
+    diagnostics.push({ phase, status, message, detail });
+  };
+
+  // Phase 1: Ping reachability
+  try {
+    if (isServerless) throw new Error('skip');
+    const { stdout } = await execAsync(process.platform === 'win32' ? `ping -n 2 ${host}` : `ping -c 2 ${host}`);
+    if (!stdout.includes('TTL') && !stdout.includes('ttl') && !stdout.includes('time=') && !stdout.includes('time<')) {
+      addDiag('ping', 'fail', `Host ${host} is not reachable`, stdout?.substring(0, 400) || '');
+      return res.json({ success: false, diagnostics, message: 'NETWORK FAIL - Host unreachable', details: `The IP ${host} did not respond to ping. Check: (1) Powered on? (2) IP correct? (3) Same network?` });
+    }
+    addDiag('ping', 'pass', `Host ${host} is reachable`);
+  } catch (e) {
+    if (isServerless || e.message === 'skip') {
+      addDiag('ping', 'pass', `Skipped ping (serverless) — trying direct TCP connection`);
+    } else {
+      return res.json({ success: false, diagnostics, message: 'NETWORK FAIL - Host unreachable', details: `The IP ${host} did not respond to ping. Check: (1) Powered on? (2) IP correct? (3) Same network?` });
+    }
+  }
+
+  // Phase 2: Port open check
+  try {
+    await new Promise((resolve, reject) => {
+      const socket = new net.Socket();
+      socket.setTimeout(5000);
+      socket.on('connect', () => {
+        addDiag('port', 'pass', `Port ${port} is open`);
+        socket.destroy();
+        resolve();
+      });
+      socket.on('timeout', () => {
+        addDiag('port', 'fail', `Port ${port} is filtered (no response)`);
+        socket.destroy();
+        reject(new Error('Filtered'));
+      });
+      socket.on('error', (err) => {
+        addDiag('port', 'fail', `Port ${port} is closed`, err.message);
+        reject(new Error('Closed'));
+      });
+      socket.connect(port, host);
+    });
+  } catch {
+    return res.json({
+      success: false,
+      diagnostics,
+      message: 'API PORT NOT ACCESSIBLE',
+      details: `Port ${port} on ${host} is closed or filtered. Check: (1) Is the API service enabled in RouterOS? (/ip service enable api) (2) Is the port correct? Default is 8728. (3) Is there a firewall blocking the port?`,
+    });
+  }
+
+  // Phase 3: RouterOS API login
+  let client = null;
+  try {
+    client = new RouterOSClient(host, port, 15000);
+    await client.connect();
+    await client.login(username, password);
+    addDiag('auth', 'pass', 'Authentication successful');
+  } catch (err) {
+    addDiag('auth', 'fail', 'Authentication failed', err.message || 'Invalid credentials');
+    if (client) { try { await client.close(); } catch {} }
+    return res.json({
+      success: false,
+      diagnostics,
+      message: 'AUTHENTICATION FAILED',
+      details: 'The IP is reachable and port is open, but the username or password is incorrect. Check: (1) Username (case-sensitive) (2) Password (3) Is the user allowed to login via API? (/user set [username] address=0.0.0.0/0)',
+    });
+  }
+
+  // Phase 4: Fetch system info
+  try {
+    const identity = await client.runQuery('/system/identity/print');
+    const resource = await client.runQuery('/system/resource/print');
+    const clock = await client.runQuery('/system/clock/print');
+    const interfaces = await client.runQuery('/interface/print');
+    const ethernetPorts = await client.runQuery('/interface/ethernet/print').catch(() => []);
+    const services = await client.runQuery('/ip/service/print').catch(() => []);
+    const routerboard = await client.runQuery('/system/routerboard/print').catch(() => [{}]);
+
+    addDiag('info', 'pass', 'System information retrieved');
+
+    await client.close();
+
+    const idRow = identity?.[0] || {};
+    const resRow = resource?.[0] || {};
+    const clkRow = clock?.[0] || {};
+    const rbRow = routerboard?.[0] || {};
+
+    // Build enriched port list from all interfaces + ethernet details
+    const etherMap = {};
+    (ethernetPorts || []).forEach(ep => { etherMap[ep.name] = ep; });
+
+    const allPorts = (interfaces || []).map(iface => {
+      const eth = etherMap[iface.name] || {};
+      return {
+        name: iface.name,
+        type: iface.type,
+        mtu: iface.mtu,
+        mac: iface['mac-address'],
+        running: iface.running === 'true',
+        disabled: iface.disabled === 'true',
+        enabled: iface.disabled !== 'true',
+        comment: iface.comment || '',
+        // Ethernet-specific port details
+        speed: eth['advertised-link-modes']
+          ? (eth['advertised-link-modes'].match(/(\d+[MG])bps/) || [])[1] || eth.speed || '—'
+          : eth.speed || '—',
+        duplex: eth['auto-negotiation'] === 'true' ? 'auto' : (eth.duplex || '—'),
+        poeOut: eth['poe-out'] || (eth['poe'] || '—'),
+        linkStatus: iface.running === 'true' ? 'link-ok' : 'no-link',
+        rate: eth.rate || '—',
+        sfpPresent: eth['sfp-present'] || '—',
+        sfpType: eth['sfp-type'] || '—',
+      };
+    });
+
+    // Separate physical ethernet ports vs virtual interfaces
+    const physicalPorts = allPorts.filter(p =>
+      ['ether', 'sfp', 'combo', 'wlan', 'wlan60'].some(t => p.type === t || p.name.toLowerCase().startsWith(t))
+    );
+    const virtualInterfaces = allPorts.filter(p =>
+      !physicalPorts.includes(p)
+    );
+
+    return res.json({
+      success: true,
+      diagnostics,
+      message: `Connected to ${idRow.name || 'MikroTik'} successfully`,
+      info: {
+        identity: idRow.name || 'Unknown',
+        version: resRow.version || 'Unknown',
+        boardName: resRow['board-name'] || 'Unknown',
+        cpu: resRow.cpu || 'Unknown',
+        cpuCount: resRow['cpu-count'] || 'Unknown',
+        cpuFrequency: resRow['cpu-frequency'] || 'Unknown',
+        totalMemory: resRow['total-memory'] || 'Unknown',
+        totalHdd: resRow['total-hdd-space'] || 'Unknown',
+        architecture: resRow['architecture-name'] || 'Unknown',
+        uptime: resRow.uptime || 'Unknown',
+        clock: clkRow.time || 'Unknown',
+        date: clkRow.date || 'Unknown',
+        timezone: clkRow['time-zone-name'] || 'Unknown',
+        routerboard: rbRow.model || 'Unknown',
+        serialNumber: rbRow['serial-number'] || 'Unknown',
+        firmware: rbRow['firmware-type'] || 'Unknown',
+        services: (services || []).map(s => ({
+          name: s.name || 'Unknown',
+          port: parseInt(s.port) || 0,
+          disabled: s.disabled === 'true',
+          enabled: s.disabled !== 'true',
+          certificate: s.certificate || '—',
+          address: s.address || '0.0.0.0',
+          comment: s.comment || '',
+        })),
+        ports: {
+          total: allPorts.length,
+          enabled: allPorts.filter(p => p.enabled).length,
+          disabled: allPorts.filter(p => !p.enabled).length,
+          running: allPorts.filter(p => p.running).length,
+          physical: physicalPorts,
+          virtual: virtualInterfaces,
+        },
+      },
+    });
+  } catch (err) {
+    if (client) { try { await client.close(); } catch {} }
+    addDiag('info', 'fail', 'Failed to fetch system info', err.message);
+    return res.json({ success: true, diagnostics, message: 'Logged in but info retrieval partially failed', info: null });
+  }
+});
+
+// === SNMP CHECKER ===
+function snmpGet(session, oids) {
+  return new Promise((resolve, reject) => {
+    session.get(oids, (error, varbinds) => {
+      if (error) return reject(error);
+      const results = {};
+      (varbinds || []).forEach((vb, i) => {
+        const oid = oids[i];
+        if (snmp.isVarbindError(vb)) {
+          results[oid] = { error: snmp.varbindError(vb) };
+        } else {
+          results[oid] = { value: vb.value };
+        }
+      });
+      resolve(results);
+    });
+  });
+}
+
+function snmpWalk(session, oid) {
+  return new Promise((resolve, reject) => {
+    const entries = [];
+    session.walk(oid, 20, (error, varbinds) => {
+      if (error) return reject(error);
+      (varbinds || []).forEach(vb => {
+        if (!snmp.isVarbindError(vb)) {
+          entries.push({ oid: vb.oid, value: vb.value });
+        }
+      });
+    }, (error) => {
+      if (error) return reject(error);
+      resolve(entries);
+    });
+  });
+}
+
+function bufferToStr(buf) {
+  if (Buffer.isBuffer(buf)) return buf.toString('utf8').replace(/[\x00-\x1f]/g, '').trim();
+  return String(buf);
+}
+
+app.post('/api/snmp/check', async (req, res) => {
+  const { host, community = 'public', port = 161, version = '2c' } = req.body;
+  if (!host) return res.status(400).json({ error: 'Host is required' });
+
+  const diagnostics = [];
+  const addDiag = (phase, status, message, detail = null) => {
+    diagnostics.push({ phase, status, message, detail });
+  };
+
+  // Phase 1: Ping
+  try {
+    if (!isServerless) {
+      const { stdout } = await execAsync(process.platform === 'win32' ? `ping -n 2 ${host}` : `ping -c 2 ${host}`);
+      if (!stdout.includes('TTL') && !stdout.includes('ttl') && !stdout.includes('time=') && !stdout.includes('time<')) {
+        addDiag('ping', 'fail', `Host ${host} is not reachable`);
+        return res.json({ success: false, diagnostics, message: 'Host unreachable' });
+      }
+      addDiag('ping', 'pass', `Host ${host} is reachable`);
+    } else {
+      addDiag('ping', 'pass', `Skipped ping (serverless) — trying SNMP directly`);
+    }
+  } catch {
+    return res.json({ success: false, diagnostics, message: 'Host unreachable' });
+  }
+
+  // Phase 2: SNMP connection
+  let session = null;
+  try {
+    const snmpVersion = version === '1' ? snmp.Version1 : snmp.Version2c;
+    session = snmp.createSession(host, community, {
+      port,
+      version: snmpVersion,
+      timeout: 8000,
+      retries: 1,
+    });
+
+    // Try to fetch sysDescr as a connectivity test
+    const sysOids = [
+      '1.3.6.1.2.1.1.1.0',   // sysDescr
+      '1.3.6.1.2.1.1.2.0',   // sysObjectID
+      '1.3.6.1.2.1.1.3.0',   // sysUpTime
+      '1.3.6.1.2.1.1.4.0',   // sysContact
+      '1.3.6.1.2.1.1.5.0',   // sysName
+      '1.3.6.1.2.1.1.6.0',   // sysLocation
+      '1.3.6.1.2.1.2.1.0',   // ifNumber
+    ];
+
+    const sysData = await snmpGet(session, sysOids);
+    addDiag('snmp', 'pass', `SNMP ${version} connected with community "${community}"`);
+
+    // Phase 3: Walk interfaces
+    let ifaces = [];
+    try {
+      const ifDescr = await snmpWalk(session, '1.3.6.1.2.1.2.2.1.2');
+      const ifAdmin = await snmpWalk(session, '1.3.6.1.2.1.2.2.1.7');
+      const ifOper = await snmpWalk(session, '1.3.6.1.2.1.2.2.1.8');
+      const ifSpeed = await snmpWalk(session, '1.3.6.1.2.1.2.2.1.5');
+      const ifMtu = await snmpWalk(session, '1.3.6.1.2.1.2.2.1.4');
+      const ifMac = await snmpWalk(session, '1.3.6.1.2.1.2.2.1.6');
+
+      const indexMap = {};
+      ifDescr.forEach(e => { const idx = e.oid.split('.').pop(); indexMap[idx] = { name: bufferToStr(e.value) }; });
+      ifAdmin.forEach(e => { const idx = e.oid.split('.').pop(); if (indexMap[idx]) indexMap[idx].admin = e.value; });
+      ifOper.forEach(e => { const idx = e.oid.split('.').pop(); if (indexMap[idx]) indexMap[idx].oper = e.value; });
+      ifSpeed.forEach(e => { const idx = e.oid.split('.').pop(); if (indexMap[idx]) indexMap[idx].speed = e.value; });
+      ifMtu.forEach(e => { const idx = e.oid.split('.').pop(); if (indexMap[idx]) indexMap[idx].mtu = e.value; });
+      ifMac.forEach(e => { const idx = e.oid.split('.').pop(); if (indexMap[idx]) indexMap[idx].mac = e.value; });
+
+      ifaces = Object.entries(indexMap).map(([idx, data]) => ({
+        index: parseInt(idx),
+        name: data.name || `if${idx}`,
+        admin: data.admin === 1 ? 'up' : 'down',
+        oper: data.oper === 1 ? 'up' : 'down',
+        speed: data.speed || 0,
+        mtu: data.mtu || 0,
+        mac: data.mac ? Buffer.from(data.mac).toString('hex').replace(/(.{2})(?=.)/g, '$1:').toUpperCase() : null,
+        status: data.oper === 1 ? 'link-ok' : 'no-link',
+      }));
+    } catch (e) {
+      // Walk is optional
+    }
+
+    session.close();
+
+    return res.json({
+      success: true,
+      diagnostics,
+      host,
+      message: `SNMP response received from ${host}`,
+      system: {
+        description: sysData['1.3.6.1.2.1.1.1.0']?.value ? bufferToStr(sysData['1.3.6.1.2.1.1.1.0'].value) : '—',
+        objectId: sysData['1.3.6.1.2.1.1.2.0']?.value ? String(sysData['1.3.6.1.2.1.1.2.0'].value) : '—',
+        uptime: sysData['1.3.6.1.2.1.1.3.0']?.value ? (sysData['1.3.6.1.2.1.1.3.0'].value / 100).toFixed(0) + ' seconds' : '—',
+        contact: sysData['1.3.6.1.2.1.1.4.0']?.value ? bufferToStr(sysData['1.3.6.1.2.1.1.4.0'].value) : '—',
+        name: sysData['1.3.6.1.2.1.1.5.0']?.value ? bufferToStr(sysData['1.3.6.1.2.1.1.5.0'].value) : '—',
+        location: sysData['1.3.6.1.2.1.1.6.0']?.value ? bufferToStr(sysData['1.3.6.1.2.1.1.6.0'].value) : '—',
+        ifCount: sysData['1.3.6.1.2.1.2.1.0']?.value || 0,
+      },
+      interfaces: ifaces,
+    });
+  } catch (err) {
+    if (session) session.close();
+    addDiag('snmp', 'fail', `SNMP connection failed`, err.message);
+    return res.json({ success: false, diagnostics, message: `SNMP error: ${err.message}` });
+  }
+});
+
+// === HTTP HEADERS CHECKER ===
+app.get('/api/http-headers', (req, res) => {
+  const { url } = req.query;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  let targetUrl = url;
+  if (!/^https?:\/\//i.test(targetUrl)) targetUrl = 'https://' + targetUrl;
+
+  try {
+    const parsed = new URL(targetUrl);
+    const client = parsed.protocol === 'https:' ? https : http;
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: 'HEAD',
+      timeout: 10000,
+      headers: { 'User-Agent': 'SuperApp-NetworkTools/1.0' },
+    };
+
+    const reqHttp = client.request(options, (response) => {
+      const headers = {};
+      Object.entries(response.headers).forEach(([key, val]) => {
+        headers[key] = Array.isArray(val) ? val.join(', ') : String(val);
+      });
+      res.json({
+        url: targetUrl,
+        statusCode: response.statusCode,
+        statusMessage: response.statusMessage,
+        httpVersion: response.httpVersion,
+        headers,
+        timing: {
+          total: Date.now() - start,
+        },
+      });
+    });
+
+    const start = Date.now();
+    reqHttp.on('error', (err) => res.status(500).json({ error: err.message, url: targetUrl }));
+    reqHttp.on('timeout', () => { reqHttp.destroy(); res.status(504).json({ error: 'Request timed out', url: targetUrl }); });
+    reqHttp.end();
+  } catch (err) {
+    res.status(400).json({ error: 'Invalid URL', url: targetUrl });
+  }
+});
+
+// === SSL CERTIFICATE CHECKER ===
+app.get('/api/ssl-cert', (req, res) => {
+  const { host, port = 443 } = req.query;
+  if (!host) return res.status(400).json({ error: 'Host is required' });
+
+  const socket = tls.connect({ host, port, servername: host, rejectUnauthorized: false }, () => {
+    const cert = socket.getPeerCertificate(true);
+    const validFrom = new Date(cert.valid_from).toISOString();
+    const validTo = new Date(cert.valid_to).toISOString();
+    const daysLeft = Math.floor((new Date(cert.valid_to) - new Date()) / (1000 * 60 * 60 * 24));
+
+    socket.end();
+
+    res.json({
+      host,
+      port,
+      subject: {
+        commonName: cert.subject?.CN || 'Unknown',
+        organization: cert.subject?.O || 'Unknown',
+        country: cert.subject?.C || 'Unknown',
+      },
+      issuer: {
+        commonName: cert.issuer?.CN || 'Unknown',
+        organization: cert.issuer?.O || 'Unknown',
+        country: cert.issuer?.C || 'Unknown',
+      },
+      validFrom,
+      validTo,
+      daysLeft,
+      expired: daysLeft < 0,
+      serialNumber: cert.serialNumber || 'Unknown',
+      fingerprint: cert.fingerprint || 'Unknown',
+      fingerprint256: cert.fingerprint256 || 'Unknown',
+      subjectAltNames: cert.subjectaltname ? cert.subjectaltname.split(', ').filter(Boolean) : [],
+      bits: cert.bits || 0,
+      signatureAlgorithm: cert.sigalg || 'Unknown',
+    });
+  });
+
+  socket.setTimeout(10000);
+  socket.on('error', (err) => res.status(500).json({ error: `Could not connect: ${err.message}`, host, port }));
+  socket.on('timeout', () => { socket.destroy(); res.status(504).json({ error: 'Connection timed out', host, port }); });
+});
+
+const PORT = process.env.PORT || 3001;
+if (!isServerless) {
+  app.listen(PORT, () => console.log(`SuperApp backend running on port ${PORT}`));
+}
+module.exports = app;

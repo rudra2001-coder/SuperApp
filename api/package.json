@@ -1,0 +1,13 @@
+{
+  "name": "superapp-api",
+  "version": "1.0.0",
+  "description": "Vercel serverless API for SuperApp network tools",
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "whois": "^2.14.0",
+    "mikro-routeros": "^1.0.6",
+    "net-snmp": "^3.26.1",
+    "axios": "^1.18.1"
+  }
+}
