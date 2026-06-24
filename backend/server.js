@@ -228,7 +228,7 @@ app.post('/api/mikrotik/test', async (req, res) => {
     addDiag('auth', 'pass', 'Authentication successful');
   } catch (err) {
     addDiag('auth', 'fail', 'Authentication failed', err.message || 'Invalid credentials');
-    if (client) await client.close().catch(() => {});
+    if (client) { try { await client.close(); } catch {} }
     return res.json({
       success: false,
       diagnostics,
@@ -333,7 +333,7 @@ app.post('/api/mikrotik/test', async (req, res) => {
       },
     });
   } catch (err) {
-    if (client) await client.close().catch(() => {});
+    if (client) { try { await client.close(); } catch {} }
     addDiag('info', 'fail', 'Failed to fetch system info', err.message);
     return res.json({ success: true, diagnostics, message: 'Logged in but info retrieval partially failed', info: null });
   }
