@@ -1,0 +1,60 @@
+import axios from 'axios';
+
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
+const api = axios.create({
+  baseURL: BACKEND_URL,
+  timeout: 30000,
+});
+
+export async function pingTarget(target, count = 4) {
+  const { data } = await api.post('/api/ping', { target, count });
+  return data;
+}
+
+export async function scanPorts(target, ports) {
+  const { data } = await api.post('/api/scan-port', { target, ports });
+  return data;
+}
+
+export async function dnsLookup(domain) {
+  const { data } = await api.get('/api/dns', { params: { domain } });
+  return data;
+}
+
+export async function whoisLookup(query) {
+  const { data } = await api.get('/api/whois', { params: { query } });
+  return data;
+}
+
+export async function traceroute(target) {
+  const { data } = await api.get('/api/traceroute', { params: { target } });
+  return data;
+}
+
+export async function getIPInfo() {
+  const { data } = await api.get('/api/ip-info');
+  return data;
+}
+
+export async function fetchPublicIPInfo() {
+  try {
+    const { data } = await axios.get('https://ipapi.co/json/', { timeout: 10000 });
+    return data;
+  } catch {
+    try {
+      const { data } = await axios.get('https://ip-api.com/json/', { timeout: 10000 });
+      return {
+        ip: data.query,
+        city: data.city,
+        region: data.regionName,
+        country: data.country,
+        org: data.isp,
+        timezone: data.timezone,
+        asn: data.as,
+      };
+    } catch {
+      return { error: 'Could not fetch IP info' };
+    }
+  }
+}

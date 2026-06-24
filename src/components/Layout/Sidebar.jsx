@@ -1,0 +1,90 @@
+import { NavLink, useLocation } from 'react-router-dom';
+
+const moduleLinks = {
+  '/data-processor': [
+    { path: '/data-processor', label: 'Dashboard', icon: '📊' },
+  ],
+  '/network-tools': [
+    { path: '/network-tools', label: 'Overview', icon: '📡' },
+    { path: '/network-tools/ping', label: 'Ping', icon: '📶' },
+    { path: '/network-tools/port-scanner', label: 'Port Scanner', icon: '🔌' },
+    { path: '/network-tools/dns-lookup', label: 'DNS Lookup', icon: '🔍' },
+    { path: '/network-tools/whois', label: 'WHOIS', icon: '🏛️' },
+    { path: '/network-tools/traceroute', label: 'Traceroute', icon: '🗺️' },
+    { path: '/network-tools/ip-info', label: 'IP Info', icon: '🖥️' },
+  ],
+  '/utilities': [
+    { path: '/utilities', label: 'Overview', icon: '🧰' },
+    { path: '/utilities/base64', label: 'Base64', icon: '🔐' },
+    { path: '/utilities/uuid', label: 'UUID Generator', icon: '🆔' },
+    { path: '/utilities/password', label: 'Password Gen', icon: '🔑' },
+    { path: '/utilities/qr', label: 'QR Code', icon: '📱' },
+    { path: '/utilities/hasher', label: 'File Hasher', icon: '🔑' },
+    { path: '/utilities/json-formatter', label: 'JSON Formatter', icon: '📋' },
+    { path: '/utilities/color-converter', label: 'Color Converter', icon: '🎨' },
+    { path: '/utilities/text-case', label: 'Text Case', icon: '🔤' },
+    { path: '/utilities/url-encode', label: 'URL Encode', icon: '🔗' },
+    { path: '/utilities/unit-converter', label: 'Unit Converter', icon: '📏' },
+    { path: '/utilities/timer', label: 'Timer', icon: '⏱️' },
+    { path: '/utilities/lorem-ipsum', label: 'Lorem Ipsum', icon: '📝' },
+    { path: '/utilities/text-analyzer', label: 'Text Analyzer', icon: '📊' },
+    { path: '/utilities/number-base', label: 'Number Base', icon: '🔢' },
+    { path: '/utilities/epoch-converter', label: 'Epoch Converter', icon: '🕐' },
+    { path: '/utilities/regex-tester', label: 'Regex Tester', icon: '🔍' },
+  ],
+};
+
+export default function Sidebar() {
+  const location = useLocation();
+  const base = '/' + location.pathname.split('/')[1];
+  const links = moduleLinks[base] || [];
+
+  if (links.length === 0) return null;
+
+  const sidebarStyle = {
+    position: 'fixed',
+    left: 0,
+    top: 56,
+    bottom: 0,
+    width: 220,
+    background: 'var(--bg-card)',
+    borderRight: '1px solid var(--border-color)',
+    padding: '16px 8px',
+    overflowY: 'auto',
+    zIndex: 50,
+  };
+
+  const linkStyle = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '10px 14px',
+    borderRadius: 'var(--radius)',
+    textDecoration: 'none',
+    color: 'var(--text-secondary)',
+    fontSize: 14,
+    fontWeight: 500,
+    transition: 'all 0.2s',
+    marginBottom: 2,
+  };
+
+  return (
+    <aside style={sidebarStyle}>
+      {links.map(link => (
+        <NavLink
+          key={link.path}
+          to={link.path}
+          end={link.path === base}
+          style={({ isActive }) => ({
+            ...linkStyle,
+            background: isActive ? 'var(--accent)' : 'transparent',
+            color: isActive ? '#fff' : 'var(--text-secondary)',
+          })}
+        >
+          <span>{link.icon}</span>
+          <span>{link.label}</span>
+        </NavLink>
+      ))}
+    </aside>
+  );
+}
