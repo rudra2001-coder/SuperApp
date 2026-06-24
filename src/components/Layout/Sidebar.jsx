@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 const moduleLinks = {
   '/data-processor': [
     { path: '/data-processor', label: 'Dashboard', icon: '📊' },
+    { path: '/data-processor/fill-from-sample', label: 'Fill from Sample', icon: '📋' },
   ],
   '/network-tools': [
     { path: '/network-tools', label: 'Overview', icon: '📡' },

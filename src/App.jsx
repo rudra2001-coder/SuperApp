@@ -3,6 +3,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import { SupabaseProvider } from './context/SupabaseContext';
 import Layout from './components/Layout/Layout';
 import DataProcessor from './pages/DataProcessor/DataProcessor';
+import FillFromSample from './pages/DataProcessor/FillFromSample';
 import NetworkTools from './pages/NetworkTools';
 import Utilities from './pages/Utilities';
 
@@ -16,6 +17,7 @@ function Home() {
       <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
         {[
           { path: '/data-processor', label: '📄 Data Processor', desc: 'Extract & validate document data' },
+          { path: '/data-processor/fill-from-sample', label: '📋 Fill from Sample', desc: 'Map & fill data from Excel/CSV using a demo template' },
           { path: '/network-tools', label: '🌐 Network Tools', desc: 'Ping, DNS, WHOIS, Port Scan & more' },
           { path: '/utilities', label: '🧰 Utilities', desc: 'Base64, UUID, QR, Hasher, JSON & Color' },
         ].map(item => (
@@ -47,6 +49,7 @@ export default function App() {
           <Route element={<Layout />}>
             <Route path="/" element={<Home />} />
             <Route path="/data-processor" element={<DataProcessor />} />
+            <Route path="/data-processor/fill-from-sample" element={<FillFromSample />} />
             <Route path="/network-tools/*" element={<NetworkTools />} />
             <Route path="/utilities/*" element={<Utilities />} />
             <Route path="*" element={<Navigate to="/" replace />} />
