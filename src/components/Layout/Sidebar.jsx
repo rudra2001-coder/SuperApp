@@ -4,6 +4,7 @@ const moduleLinks = {
   '/data-processor': [
     { path: '/data-processor', label: 'Dashboard', icon: '📊' },
     { path: '/data-processor/fill-from-sample', label: 'Fill from Sample', icon: '📋' },
+    { path: '/data-processor/smart-fill', label: 'Smart Fill', icon: '🔧' },
   ],
   '/network-tools': [
     { path: '/network-tools', label: 'Overview', icon: '📡' },
