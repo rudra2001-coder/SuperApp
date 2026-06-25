@@ -1,4 +1,5 @@
 import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
+import { Analytics } from '@vercel/analytics/react';
 import { ThemeProvider } from './context/ThemeContext';
 import { SupabaseProvider } from './context/SupabaseContext';
 import Layout from './components/Layout/Layout';
@@ -58,6 +59,7 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
+        <Analytics />
       </BrowserRouter>
     </ThemeProvider>
     </SupabaseProvider>
