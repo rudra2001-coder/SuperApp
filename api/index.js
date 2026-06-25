@@ -498,6 +498,127 @@ app.post('/api/snmp/check', async (req, res) => {
   }
 });
 
+// === SNMP MIB BROWSER — Custom OID Query ===
+function formatSnmpValue(vb) {
+  if (snmp.isVarbindError(vb)) return { type: 'error', value: snmp.varbindError(vb) };
+  const val = vb.value;
+  const type = vb.type;
+  if (Buffer.isBuffer(val)) {
+    const isMac = val.length === 6;
+    const isIp = val.length === 4;
+    if (isMac) return { type: 'MAC', value: val.toString('hex').replace(/(.{2})(?=.)/g, '$1:').toUpperCase() };
+    if (isIp) return { type: 'IPAddress', value: Array.from(val).join('.') };
+    const str = val.toString('utf8').replace(/[\x00-\x1f]/g, '').trim();
+    if (str.length > 0 && str.length === val.length) return { type: 'String', value: str };
+    return { type: 'Hex-String', value: val.toString('hex').replace(/(.{2})(?=.)/g, '$1:').toUpperCase() };
+  }
+  if (type === snmp.ObjectType.Counter64 || type === snmp.ObjectType.Counter || type === snmp.ObjectType.Gauge32 || type === snmp.ObjectType.Unsigned32) {
+    return { type: 'Counter', value: String(val) };
+  }
+  if (type === snmp.ObjectType.Integer || type === snmp.ObjectType.Integer32) {
+    return { type: 'Integer', value: String(val) };
+  }
+  if (type === snmp.ObjectType.OID) {
+    return { type: 'OID', value: String(val) };
+  }
+  if (type === snmp.ObjectType.TimeTicks) {
+    const sec = Math.floor(val / 100);
+    const d = Math.floor(sec / 86400);
+    const h = Math.floor((sec % 86400) / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    return { type: 'TimeTicks', value: `${d}d ${h}h ${m}m ${s}s`, raw: val };
+  }
+  return { type: 'Opaque', value: String(val) };
+}
+
+app.post('/api/snmp/query', async (req, res) => {
+  const { host, community = 'public', port = 161, version = '2c', oid, operation = 'get', timeout = 8000, maxRepetitions = 20 } = req.body;
+  if (!host) return res.status(400).json({ error: 'Host is required' });
+  if (!oid) return res.status(400).json({ error: 'OID is required' });
+
+  const oidRegex = /^(\d+\.)*\d+$/;
+  if (!oidRegex.test(oid)) return res.status(400).json({ error: 'Invalid OID format. Use dot notation like 1.3.6.1.2.1.1.1.0' });
+
+  let session = null;
+  try {
+    const snmpVersion = version === '1' ? snmp.Version1 : snmp.Version2c;
+    session = snmp.createSession(host, community, { port, version: snmpVersion, timeout: Math.min(timeout, 30000), retries: 1 });
+
+    const startTime = Date.now();
+    let results = [];
+
+    if (operation === 'get') {
+      const oidResult = await snmpGet(session, [oid]);
+      const vb = oidResult[oid];
+      results = [{ oid, ...formatSnmpValue({ value: vb?.value, type: 0, oid }, vb?.error ? { type: 0 } : null) }];
+      if (vb?.error) results[0] = { oid, type: 'error', value: vb.error };
+
+    } else if (operation === 'walk' || operation === 'getbulk') {
+      const entries = await snmpWalk(session, oid);
+      results = entries.map(e => ({
+        oid: e.oid,
+        ...formatSnmpValue({ value: e.value, type: 0, oid: e.oid }),
+      }));
+
+    } else if (operation === 'getnext') {
+      const nextOid = await new Promise((resolve, reject) => {
+        session.next([oid], (error, varbinds) => {
+          if (error) return reject(error);
+          if (varbinds && varbinds.length > 0) {
+            const vb = varbinds[0];
+            if (snmp.isVarbindError(vb)) {
+              resolve({ oid: oid, type: 'error', value: snmp.varbindError(vb) });
+            } else {
+              resolve({ oid: vb.oid, ...formatSnmpValue(vb) });
+            }
+          } else {
+            resolve(null);
+          }
+        });
+      });
+      results = nextOid ? [nextOid] : [];
+
+    } else if (operation === 'getmulti') {
+      const oids = oid.split(',').map(s => s.trim());
+      const validated = oids.filter(o => oidRegex.test(o));
+      if (validated.length === 0) return res.status(400).json({ error: 'No valid OIDs provided (comma-separated)' });
+      const oidResult = await snmpGet(session, validated);
+      results = validated.map(o => ({
+        oid: o,
+        ...formatSnmpValue({ value: oidResult[o]?.value, type: 0, oid: o }, oidResult[o]?.error ? { type: 0 } : null),
+      }));
+      if (oidResult[o]?.error) results.find(r => r.oid === o).value = oidResult[o].error;
+    }
+
+    session.close();
+    const elapsed = Date.now() - startTime;
+
+    return res.json({
+      success: true,
+      host,
+      oid,
+      operation,
+      elapsed,
+      count: results.length,
+      results,
+    });
+  } catch (err) {
+    if (session) session.close();
+
+    let hint = '';
+    const msg = err.message || String(err);
+    if (msg.includes('EHOSTUNREACH') || msg.includes('ENETUNREACH')) hint = 'Host is not reachable. Check network connectivity.';
+    else if (msg.includes('ECONNREFUSED')) hint = 'SNMP service is not running or port is wrong.';
+    else if (msg.includes('ETIMEOUT') || msg.includes('RequestTimedOut')) hint = 'SNMP request timed out. Try increasing timeout or check community string.';
+    else if (msg.includes('auth') || msg.includes('community')) hint = 'Authentication failed. Check community string.';
+    else if (msg.includes('noSuchName') || msg.includes('noSuchObject') || msg.includes('noSuchInstance')) hint = 'OID does not exist on this device. Try a different OID.';
+    else if (msg.includes('genErr')) hint = 'General SNMP error. The device may not support this operation.';
+
+    return res.json({ success: false, host, oid, operation, message: `SNMP error: ${msg}`, hint, results: [] });
+  }
+});
+
 // === HTTP HEADERS CHECKER ===
 app.get('/api/http-headers', (req, res) => {
   const { url } = req.query;
