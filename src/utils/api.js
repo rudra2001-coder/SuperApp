@@ -50,6 +50,11 @@ export async function snmpCheck({ host, community, port, version }) {
   return data;
 }
 
+export async function snmpQuery({ host, community, port, version, oid, operation = 'get', timeout = 8000 }) {
+  const { data } = await api.post('/api/snmp/query', { host, community, port, version, oid, operation, timeout });
+  return data;
+}
+
 export async function checkHTTPHeaders(url) {
   const { data } = await api.get('/api/http-headers', { params: { url } });
   return data;
