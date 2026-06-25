@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import { SupabaseProvider } from './context/SupabaseContext';
 import Layout from './components/Layout/Layout';
@@ -23,7 +23,7 @@ function Home() {
           { path: '/network-tools', label: '🌐 Network Tools', desc: 'Ping, DNS, WHOIS, Port Scan & more' },
           { path: '/utilities', label: '🧰 Utilities', desc: 'Base64, UUID, QR, Hasher, JSON & Color' },
         ].map(item => (
-          <a key={item.path} href={item.path} style={{
+          <Link key={item.path} to={item.path} style={{
             textDecoration: 'none', color: 'inherit',
             background: 'var(--bg-card)', border: '1px solid var(--border-color)',
             borderRadius: 'var(--radius-lg)', padding: '24px 32px', width: 280,
@@ -35,7 +35,7 @@ function Home() {
             <p style={{ fontSize: 36, marginBottom: 12 }}>{item.icon}</p>
             <h3 style={{ fontSize: 18, fontWeight: 600, marginBottom: 8 }}>{item.label}</h3>
             <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>{item.desc}</p>
-          </a>
+          </Link>
         ))}
       </div>
     </div>

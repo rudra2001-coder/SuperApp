@@ -71,7 +71,32 @@ export default function Sidebar() {
   };
 
   return (
-    <aside style={sidebarStyle}>
+    <aside style={sidebarStyle} className="sidebar">
+      <button
+        className="sidebar-close-btn"
+        aria-label="Close sidebar"
+        style={{
+          display: 'none',
+          position: 'absolute',
+          top: 8,
+          right: 8,
+          background: 'transparent',
+          border: '1px solid var(--border-color)',
+          borderRadius: 'var(--radius)',
+          color: 'var(--text-secondary)',
+          fontSize: 16,
+          cursor: 'pointer',
+          padding: '4px 8px',
+          lineHeight: 1,
+          zIndex: 1,
+        }}
+        onClick={() => {
+          const layout = document.querySelector('.app-layout');
+          if (layout) layout.classList.remove('sidebar-open');
+        }}
+      >
+        ✕
+      </button>
       {links.map(link => (
         <NavLink
           key={link.path}
