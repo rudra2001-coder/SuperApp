@@ -10,6 +10,14 @@ import MikrotikChecker from './MikrotikChecker';
 import HTTPHeaders from './HTTPHeaders';
 import SSLChecker from './SSLChecker';
 import SNMPChecker from './SNMPChecker';
+import HTTPRequester from './HTTPRequester';
+import SubdomainDiscovery from './SubdomainDiscovery';
+import NetworkCalc from './NetworkCalc';
+import ScenarioRunner from './ScenarioRunner';
+import NetworkDashboard from './NetworkDashboard';
+import SSLMonitor from './SSLMonitor';
+import ScanCampaigns from './ScanCampaigns';
+import Preferences from './Preferences';
 
 export default function NetworkTools() {
   return (
@@ -25,6 +33,14 @@ export default function NetworkTools() {
       <Route path="http-headers" element={<HTTPHeaders />} />
       <Route path="ssl-cert" element={<SSLChecker />} />
       <Route path="snmp" element={<SNMPChecker />} />
+      <Route path="http-requester" element={<HTTPRequester />} />
+      <Route path="subdomain-discovery" element={<SubdomainDiscovery />} />
+      <Route path="network-calc" element={<NetworkCalc />} />
+      <Route path="scenario-runner" element={<ScenarioRunner />} />
+      <Route path="dashboard" element={<NetworkDashboard />} />
+      <Route path="ssl-monitor" element={<SSLMonitor />} />
+      <Route path="scan-campaigns" element={<ScanCampaigns />} />
+      <Route path="preferences" element={<Preferences />} />
     </Routes>
   );
 }

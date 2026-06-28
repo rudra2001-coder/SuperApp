@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 const tools = [
@@ -11,14 +12,37 @@ const tools = [
   { path: 'http-headers', label: 'HTTP Headers', desc: 'Inspect HTTP response headers', icon: '🌐' },
   { path: 'ssl-cert', label: 'SSL Certificate', desc: 'Check SSL cert validity & details', icon: '🔒' },
   { path: 'snmp', label: 'SNMP Checker', desc: 'Test SNMP & retrieve system info', icon: '📡' },
+  { path: 'http-requester', label: 'HTTP Request Tester', desc: 'Send HTTP requests with custom headers & body', icon: '📮' },
+  { path: 'subdomain-discovery', label: 'Subdomain Discovery', desc: 'Discover subdomains via crt.sh & DNS', icon: '🔍' },
+  { path: 'network-calc', label: 'Network Calculator', desc: 'CIDR calculator & IP range converter', icon: '🧮' },
+  { path: 'scenario-runner', label: 'Scenario Runner', desc: 'Multi-step network check playbooks', icon: '🎯' },
+  { path: 'dashboard', label: 'Network Dashboard', desc: 'Real-time multi-target monitoring', icon: '📊' },
+  { path: 'ssl-monitor', label: 'SSL Expiry Monitor', desc: 'Track SSL cert expiry with warnings', icon: '🔒' },
+  { path: 'scan-campaigns', label: 'Scan Campaigns', desc: 'Recon campaigns: subdomain + port scan', icon: '🎯' },
+  { path: 'preferences', label: 'Preferences', desc: 'User settings & history retention', icon: '⚙️' },
 ];
 
 export default function NetworkOverview() {
+  const [search, setSearch] = useState('');
+  const filtered = tools.filter(t =>
+    t.label.toLowerCase().includes(search.toLowerCase()) ||
+    t.desc.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
     <div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>🌐 Network Tools</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, gap: 16, flexWrap: 'wrap' }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700 }}>🌐 Network Tools</h1>
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="🔍 Search tools..." style={{ width: 240, fontSize: 13, padding: '8px 14px' }} />
+      </div>
+      {filtered.length === 0 && search && (
+        <div className="card" style={{ textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
+          No tools match "{search}"
+        </div>
+      )}
       <div className="grid-3">
-        {tools.map(tool => (
+        {filtered.map(tool => (
           <Link key={tool.path} to={tool.path} style={{ textDecoration: 'none' }}>
             <div className="card" style={{
               cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s',

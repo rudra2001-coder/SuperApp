@@ -65,6 +65,26 @@ export async function checkSSLCert(host, port = 443) {
   return data;
 }
 
+export async function sendHTTPRequest({ method, url, headers, body }) {
+  const { data } = await api.post('/api/http-test', { method, url, headers, body });
+  return data;
+}
+
+export async function discoverSubdomains(domain) {
+  const { data } = await api.get('/api/subdomain-discovery', { params: { domain } });
+  return data;
+}
+
+export async function runScanCampaign({ domain, ports }) {
+  const { data } = await api.post('/api/scan-campaign', { domain, ports });
+  return data;
+}
+
+export async function runScenario(steps) {
+  const { data } = await api.post('/api/run-scenario', { steps });
+  return data;
+}
+
 export async function fetchPublicIPInfo() {
   try {
     const { data } = await axios.get('https://ipapi.co/json/', { timeout: 10000 });
