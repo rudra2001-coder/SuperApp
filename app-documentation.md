@@ -33,7 +33,7 @@
 
 - **Data Processor** -- Excel/CSV parsing, AI-powered extraction via Claude API, column mapping, validation, and export. Includes a "Fill from Sample" (Mark II) workflow.
 - **Network Tools** -- Ping, Port Scanner, DNS Lookup, WHOIS, Traceroute, IP Info. Works with simulated data in the frontend or real data via the optional Express backend proxy.
-- **Utilities (16 tools)** -- Base64, UUID Generator, Password Generator, QR Code Generator, File Hasher, JSON Formatter, Color Converter, Text Case Converter, URL Encoder/Decoder, Unit Converter, Timer/Stopwatch, Lorem Ipsum Generator, Text Analyzer, Number Base Converter, Epoch Converter, Regex Tester.
+- **Utilities (18 tools)** -- Base64, UUID Generator, Password Generator, QR Code Generator, File Hasher, JSON Formatter, Color Converter, Text Case Converter, URL Encoder/Decoder, Unit Converter, Timer/Stopwatch, Lorem Ipsum Generator, Text Analyzer, Number Base Converter, Epoch Converter, Regex Tester, PDF to Excel, Excel Validator.
 
 ---
 
@@ -114,7 +114,9 @@ SuperApp/
 │           ├── TextAnalyzer.jsx   # Text statistics + word frequency
 │           ├── NumberBaseConverter.jsx # Binary/Octal/Decimal/Hex
 │           ├── EpochConverter.jsx # Timestamp <-> human date
-│           └── RegexTester.jsx    # Regex pattern testing with highlights
+│           ├── RegexTester.jsx    # Regex pattern testing with highlights
+│           ├── PDFToExcel.jsx     # Extract PDF text to Excel spreadsheets
+│           └── ExcelValidator.jsx # Validate Excel files against a demo template
 └── dist/                         # Production build output
 ```
 
@@ -306,7 +308,7 @@ Legacy base styles (old Vite template) -- defines `--sans`, `--mono`, `--heading
 - Content changes based on current module:
   - `/data-processor`: Dashboard link only
   - `/network-tools`: Overview, Ping, Port Scanner, DNS Lookup, WHOIS, Traceroute, IP Info
-  - `/utilities`: Overview + all 16 utility tools
+  - `/utilities`: Overview + all 18 utility tools
 - Uses `NavLink` with `isActive` for active state styling
 - Hidden when no module links match current route
 
@@ -438,10 +440,10 @@ Grid of 6 tool cards with icons and descriptions, linking to each tool.
 ## 14. Utilities Module
 
 ### `Utilities/index.jsx`
-Sub-router for all 16 utility tools.
+Sub-router for all 18 utility tools.
 
 ### `UtilitiesOverview.jsx`
-Grid of 16 tool cards with emoji icons.
+Grid of 18 tool cards with emoji icons.
 
 ### Utility Tools Detail
 
@@ -463,6 +465,8 @@ Grid of 16 tool cards with emoji icons.
 | **Number Base** | 73 | Convert between Binary, Octal, Decimal, Hexadecimal; updates all fields on any change |
 | **Epoch Converter** | 68 | Unix timestamp <-> human date; live preview; supports seconds and milliseconds; copy |
 | **Regex Tester** | 165 | Input pattern + flags (g, i, m, s, u, y); real-time highlighting of matches in text; match list with index/length/value; replace functionality |
+| **PDF to Excel** | — | Extract PDF text content to Excel spreadsheets |
+| **Excel Validator** | 450+ | Multi-sheet validation: demo template vs source file; smart type inference (10+ types with confidence); column mapping with auto-suggest; configurable validation rules (required, types, formats, enums, duplicates); severity filtering (error/warning/info); grouped/expandable issue view with resolution suggestions; data preview panel; export reports to Excel/CSV/JSON/HTML; fill-rate bars, issue distribution charts, search within issues |
 
 ---
 
@@ -561,7 +565,7 @@ BrowserRouter
          |    +-- /               -> UtilitiesOverview
          |    +-- /base64         -> Base64
          |    +-- /uuid           -> UUIDGenerator
-         |    ... (16 total)
+         |    ... (18 total)
          +-- *                    -> Redirect to /
 ```
 
@@ -593,9 +597,9 @@ ThemeContext state changes
 | Components | 6 | ~220 |
 | Data Processor | 2 | ~1,900 |
 | Network Tools | 8 | ~1,100 |
-| Utilities | 18 | ~1,800 |
+| Utilities | 20 | ~2,300 |
 | Backend | 2 | ~170 |
-| **Total** | **~57** | **~6,850** |
+| **Total** | **~59** | **~7,350** |
 
 ---
 

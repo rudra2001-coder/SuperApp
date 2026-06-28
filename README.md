@@ -24,7 +24,7 @@ A modern React application combining document data processing, network diagnosti
 | **Traceroute** | Hop-by-hop table with IP, hostname, and 3 RTT measurements |
 | **IP Info** | Auto-detect public IP, geolocation, ISP, timezone, ASN via multi-API fallback |
 
-### 🧰 Utilities (16 tools)
+### 🧰 Utilities (17 tools)
 | Tool | Description |
 |------|-------------|
 | **Base64** | Encode/decode text + file-to-Base64 encoding |
@@ -43,6 +43,7 @@ A modern React application combining document data processing, network diagnosti
 | **Number Base Converter** | Binary, Octal, Decimal, Hexadecimal |
 | **Epoch Converter** | Timestamp ↔ human date, live preview |
 | **Regex Tester** | Test patterns with highlighted matches, match list, replace |
+| **Excel Validator** | Validate Excel files against a demo template — schema analysis, type inference, format checking, column mapping, multi-sheet, export reports |
 
 ## Tech Stack
 

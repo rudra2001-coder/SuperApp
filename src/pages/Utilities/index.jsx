@@ -17,6 +17,7 @@ import NumberBaseConverter from './NumberBaseConverter';
 import EpochConverter from './EpochConverter';
 import RegexTester from './RegexTester';
 import PDFToExcel from './PDFToExcel';
+import ExcelValidator from './ExcelValidator';
 
 export default function Utilities() {
   return (
@@ -39,6 +40,7 @@ export default function Utilities() {
       <Route path="epoch-converter" element={<EpochConverter />} />
       <Route path="regex-tester" element={<RegexTester />} />
       <Route path="pdf-to-excel" element={<PDFToExcel />} />
+      <Route path="excel-validator" element={<ExcelValidator />} />
     </Routes>
   );
 }

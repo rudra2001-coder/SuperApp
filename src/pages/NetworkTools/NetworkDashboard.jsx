@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSupabase } from '../../context/SupabaseContext';
 import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { pingTarget, checkHTTPHeaders, checkSSLCert } from '../../utils/api';
@@ -19,6 +19,9 @@ const CMD_QUICK = [
   { cmd: 'netstat', label: 'Netstat', args: '', icon: '🔌' },
   { cmd: 'ipconfig', label: 'IPConfig', args: '', icon: '🖥️' },
   { cmd: 'arp -a', label: 'ARP', args: '', icon: '📋' },
+  { cmd: 'echo', label: 'Echo', args: 'Hello %username%', icon: '🖊️' },
+  { cmd: 'type', label: 'Readme', args: 'readme.txt', icon: '📄' },
+  { cmd: 'set', label: 'Env Vars', args: '', icon: '📋' },
 ];
 
 function simulateCheck(target, type) {
@@ -119,6 +122,23 @@ export default function NetworkDashboard() {
   const [cmdTarget, setCmdTarget] = useState('');
   const [cmdOutput, setCmdOutput] = useState('');
   const [cmdRunning, setCmdRunning] = useState('');
+  const [cmdScrollLocked, setCmdScrollLocked] = useState(false);
+  const cmdOutputRef = useRef(null);
+
+  const cmdAtBottom = useRef(true);
+
+  const cmdScrollToBottom = useCallback(() => {
+    if (cmdOutputRef.current) {
+      cmdOutputRef.current.scrollTop = cmdOutputRef.current.scrollHeight;
+      cmdAtBottom.current = true;
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!cmdScrollLocked && cmdAtBottom.current && cmdOutputRef.current) {
+      cmdOutputRef.current.scrollTop = cmdOutputRef.current.scrollHeight;
+    }
+  }, [cmdOutput, cmdScrollLocked]);
 
   const addTarget = () => {
     if (!newTarget.trim()) return;
@@ -280,13 +300,37 @@ export default function NetworkDashboard() {
           ))}
         </div>
         {(cmdRunning || cmdOutput) && (
-          <div style={{
-            background: '#0c0c0c', color: '#c0c0c0', fontFamily: '"Consolas", "Courier New", monospace',
-            fontSize: 12, lineHeight: 1.6, padding: '12px 16px', borderRadius: 8,
-            maxHeight: 250, overflowY: 'auto', whiteSpace: 'pre-wrap',
-          }}>
-            {cmdRunning && <div style={{ color: '#e6db74' }}>{cmdRunning} {cmdTarget}... <span style={{ color: '#888' }}>▌</span></div>}
-            {cmdOutput && <div>{cmdOutput}</div>}
+          <div style={{ position: 'relative' }}>
+            <style>{`
+              .cmd-dash-scroll::-webkit-scrollbar { width: 6px; }
+              .cmd-dash-scroll::-webkit-scrollbar-track { background: #0c0c0c; }
+              .cmd-dash-scroll::-webkit-scrollbar-thumb { background: #2d2d44; border-radius: 3px; }
+            `}</style>
+            <div style={{
+              position: 'absolute', right: 8, top: 8, zIndex: 10, display: 'flex', gap: 4,
+            }}>
+              <button onClick={cmdScrollToBottom}
+                style={{ background: 'rgba(45,45,68,0.9)', border: 'none', color: '#c0c0c0', borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: 10 }}>▼</button>
+              <button onClick={() => setCmdScrollLocked(!cmdScrollLocked)}
+                title={cmdScrollLocked ? 'Unlock auto-scroll' : 'Lock auto-scroll'}
+                style={{
+                  background: cmdScrollLocked ? 'rgba(239,71,111,0.3)' : 'rgba(45,45,68,0.9)',
+                  border: 'none', color: cmdScrollLocked ? '#ef476f' : '#c0c0c0',
+                  borderRadius: 4, padding: '2px 6px', cursor: 'pointer', fontSize: 10,
+                }}>
+                {cmdScrollLocked ? '🔒' : '🔓'}
+              </button>
+            </div>
+            <div className="cmd-dash-scroll" ref={cmdOutputRef}
+              onScroll={() => { cmdAtBottom.current = cmdOutputRef.current.scrollHeight - cmdOutputRef.current.scrollTop - cmdOutputRef.current.clientHeight < 30; }}
+              style={{
+                background: '#0c0c0c', color: '#c0c0c0', fontFamily: '"Consolas", "Courier New", monospace',
+                fontSize: 12, lineHeight: 1.6, padding: '12px 16px', borderRadius: 8,
+                maxHeight: 250, overflowY: 'auto', whiteSpace: 'pre-wrap',
+              }}>
+              {cmdRunning && <div style={{ color: '#e6db74' }}>{cmdRunning} {cmdTarget}... <span style={{ color: '#888' }}>▌</span></div>}
+              {cmdOutput && <div>{cmdOutput}</div>}
+            </div>
           </div>
         )}
         {!cmdRunning && !cmdOutput && (

@@ -18,6 +18,7 @@ const tools = [
   { path: 'number-base', label: 'Number Base', desc: 'Bin/Oct/Dec/Hex converter', icon: '🔢' },
   { path: 'epoch-converter', label: 'Epoch Converter', desc: 'Timestamp ↔ date', icon: '🕐' },
   { path: 'regex-tester', label: 'Regex Tester', desc: 'Test & highlight regex matches', icon: '🔍' },
+  { path: 'excel-validator', label: 'Excel Validator', desc: 'Validate Excel structure & data types', icon: '✅' },
   { path: 'pdf-to-excel', label: 'PDF to Excel', desc: 'Extract PDF text to Excel spreadsheets', icon: '📄➡️📊' },
 ];
 
