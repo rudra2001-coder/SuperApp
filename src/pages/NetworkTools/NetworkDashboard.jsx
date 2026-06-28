@@ -4,6 +4,7 @@ import { useLocalStorage } from '../../hooks/useLocalStorage';
 import { pingTarget, checkHTTPHeaders, checkSSLCert } from '../../utils/api';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorMessage from '../../components/common/ErrorMessage';
+import CopyButton from '../../components/common/CopyButton';
 
 const CHECK_TYPES = [
   { value: 'http', label: 'HTTP', icon: '🌐' },
@@ -11,12 +12,20 @@ const CHECK_TYPES = [
   { value: 'ssl', label: 'SSL', icon: '🔒' },
 ];
 
+const CMD_QUICK = [
+  { cmd: 'ping', label: 'Ping', args: '8.8.8.8', icon: '📶' },
+  { cmd: 'tracert', label: 'Tracert', args: 'google.com', icon: '🗺️' },
+  { cmd: 'nslookup', label: 'DNS', args: 'google.com', icon: '🔍' },
+  { cmd: 'netstat', label: 'Netstat', args: '', icon: '🔌' },
+  { cmd: 'ipconfig', label: 'IPConfig', args: '', icon: '🖥️' },
+  { cmd: 'arp -a', label: 'ARP', args: '', icon: '📋' },
+];
+
 function simulateCheck(target, type) {
   const latency = 10 + Math.random() * 190;
   const up = Math.random() > 0.15;
   return {
-    target,
-    type,
+    target, type,
     status: up ? 'up' : 'down',
     latency_ms: up ? latency : null,
     checked_at: new Date().toISOString(),
@@ -44,6 +53,57 @@ async function runRealCheck(target, type) {
   }
 }
 
+function cmdSimulatePing(host) {
+  const ip = host.match(/^\d+\.\d+\.\d+\.\d+$/) ? host : `[${host}]`;
+  let out = `\nPinging ${ip} with 32 bytes of data:\n\n`;
+  let received = 0; const times = [];
+  for (let i = 0; i < 4; i++) {
+    const lost = Math.random() > 0.9;
+    if (lost) { out += '  Request timed out.\n'; } else {
+      const ms = (10 + Math.random() * 90).toFixed(1);
+      const ttl = Math.floor(50 + Math.random() * 70);
+      out += `  Reply from ${ip}: bytes=32 time=${ms}ms TTL=${ttl}\n`;
+      received++; times.push(parseFloat(ms));
+    }
+  }
+  const loss = ((4 - received) / 4 * 100).toFixed(0);
+  out += `\n    Packets: Sent = 4, Received = ${received}, Lost = ${4 - received} (${loss}% loss),\n`;
+  if (times.length) out += `    Min = ${Math.min(...times).toFixed(1)}ms, Max = ${Math.max(...times).toFixed(1)}ms, Avg = ${(times.reduce((a, b) => a + b, 0) / times.length).toFixed(1)}ms\n`;
+  return out;
+}
+
+function cmdSimulateTracert(host) {
+  const hops = [
+    { hop: 1, ip: '192.168.1.1', ms: '1ms', name: 'router.local' },
+    { hop: 2, ip: '10.0.0.1', ms: '3ms', name: 'isp-gw-01.isp.net' },
+    { hop: 3, ip: '72.14.204.1', ms: '8ms', name: '72.14.204.1' },
+    { hop: 4, ip: '74.125.37.165', ms: '12ms', name: '209.85.252.1' },
+    { hop: 5, ip: '216.58.194.94', ms: '15ms', name: 'lhr25s41-in-f94.1e100.net' },
+    { hop: 6, ip: '142.250.80.46', ms: '16ms', name: 'lhr25s46-in-f14.1e100.net' },
+    { hop: 7, ip: '142.250.80.46', ms: '16ms', name: host },
+  ];
+  let out = `\nTracing route to ${host} [${hops[hops.length - 1].ip}]\n`;
+  hops.forEach(h => out += `  ${h.hop}.  ${h.ms}  ${h.ms}  ${h.ms}  ${h.name} [${h.ip}]\n`);
+  out += '\n  Trace complete.\n';
+  return out;
+}
+
+function cmdSimulateNSLookup(host) {
+  return `\n  Server:  dns.google\n  Address:  8.8.8.8\n\n  Name:    ${host}\n  Address: ${[8, 8, 8, Math.floor(Math.random() * 254) + 1].join('.')}\n`;
+}
+
+function cmdSimulateNetstat() {
+  return '\n  Proto  Local Address          Foreign Address        State\n  TCP    192.168.1.100:54321    142.250.80.46:443      ESTABLISHED\n  TCP    192.168.1.100:54322    104.16.132.229:443     ESTABLISHED\n  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING\n  TCP    0.0.0.0:445            0.0.0.0:0              LISTENING\n  UDP    0.0.0.0:5353           *:*\n  UDP    0.0.0.0:1900           *:*\n';
+}
+
+function cmdSimulateIPConfig() {
+  return '\n  Ethernet adapter Ethernet0:\n     IPv4 Address. . . . . . : 192.168.1.100\n     Subnet Mask . . . . . . : 255.255.255.0\n     Default Gateway . . . . : 192.168.1.1\n\n  Wireless LAN adapter Wi-Fi:\n     IPv4 Address. . . . . . : 192.168.1.101\n     Subnet Mask . . . . . . : 255.255.255.0\n     Default Gateway . . . . : 192.168.1.1\n';
+}
+
+function cmdSimulateARP() {
+  return '\n  Internet Address      Physical Address      Type\n  192.168.1.1           00-14-22-01-23-45     dynamic\n  192.168.1.102         00-1a-2b-3c-4d-5e     dynamic\n  224.0.0.2             01-00-5e-00-00-02     static\n  239.255.255.250       01-00-5e-7f-ff-fa     static\n';
+}
+
 export default function NetworkDashboard() {
   const { supabase, session, configured } = useSupabase();
   const [targets, setTargets] = useLocalStorage('superapp-dashboard-targets', []);
@@ -55,6 +115,10 @@ export default function NetworkDashboard() {
   const [isSimulated, setIsSimulated] = useState(true);
   const intervalRef = useRef(null);
   const userId = session?.user?.id;
+
+  const [cmdTarget, setCmdTarget] = useState('');
+  const [cmdOutput, setCmdOutput] = useState('');
+  const [cmdRunning, setCmdRunning] = useState('');
 
   const addTarget = () => {
     if (!newTarget.trim()) return;
@@ -75,17 +139,9 @@ export default function NetworkDashboard() {
       results.push(result);
     }
     setChecks(results);
-
     if (configured && userId) {
       try {
-        const rows = results.map(r => ({
-          target: r.target,
-          type: r.type,
-          status: r.status,
-          latency_ms: r.latency_ms,
-          checked_at: r.checked_at,
-          session_id: userId,
-        }));
+        const rows = results.map(r => ({ target: r.target, type: r.type, status: r.status, latency_ms: r.latency_ms, checked_at: r.checked_at, session_id: userId }));
         await supabase.from('network_checks').insert(rows);
       } catch {}
     }
@@ -93,36 +149,16 @@ export default function NetworkDashboard() {
 
   useEffect(() => {
     if (!configured || !userId) return;
-    const subscription = supabase
-      .channel('network_checks_changes')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'network_checks', filter: `session_id=eq.${userId}` }, (payload) => {
-        setChecks(prev => {
-          const existing = prev.findIndex(c => c.target === payload.new.target && c.type === payload.new.type);
-          if (existing >= 0) {
-            const updated = [...prev];
-            updated[existing] = payload.new;
-            return updated;
-          }
-          return [payload.new, ...prev];
-        });
-      })
-      .subscribe();
-    return () => { supabase.removeChannel(subscription); };
+    const sub = supabase.channel('network_checks_changes').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'network_checks', filter: `session_id=eq.${userId}` }, (payload) => {
+      setChecks(prev => { const i = prev.findIndex(c => c.target === payload.new.target && c.type === payload.new.type); if (i >= 0) { const u = [...prev]; u[i] = payload.new; return u; } return [payload.new, ...prev]; });
+    }).subscribe();
+    return () => { supabase.removeChannel(sub); };
   }, [configured, userId, supabase]);
 
-  const startPolling = () => {
-    if (intervalRef.current) return;
-    runAllChecks();
-    intervalRef.current = setInterval(runAllChecks, 30000);
-  };
+  const startPolling = () => { if (intervalRef.current) return; runAllChecks(); intervalRef.current = setInterval(runAllChecks, 30000); };
+  const stopPolling = () => { if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; } };
 
-  const stopPolling = () => {
-    if (intervalRef.current) { clearInterval(intervalRef.current); intervalRef.current = null; }
-  };
-
-  useEffect(() => {
-    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, []);
+  useEffect(() => () => { if (intervalRef.current) clearInterval(intervalRef.current); }, []);
 
   const getStatusBadge = (status) => {
     if (status === 'up') return <span className="badge badge-success">✅ Up</span>;
@@ -130,9 +166,23 @@ export default function NetworkDashboard() {
     return <span className="badge badge-warning">⏳ Pending</span>;
   };
 
-  const getTypeIcon = (type) => {
-    const t = CHECK_TYPES.find(c => c.value === type);
-    return t ? t.icon : '🔍';
+  const getTypeIcon = (type) => { const t = CHECK_TYPES.find(c => c.value === type); return t ? t.icon : '🔍'; };
+
+  const runCmd = (cmd, args) => {
+    const host = cmdTarget || args;
+    setCmdRunning(cmd);
+    setCmdOutput('');
+    setTimeout(() => {
+      let output = '';
+      if (cmd === 'ping') output = cmdSimulatePing(host);
+      else if (cmd === 'tracert') output = cmdSimulateTracert(host);
+      else if (cmd === 'nslookup') output = cmdSimulateNSLookup(host);
+      else if (cmd === 'netstat') output = cmdSimulateNetstat();
+      else if (cmd === 'ipconfig') output = cmdSimulateIPConfig();
+      else if (cmd === 'arp -a') output = cmdSimulateARP();
+      setCmdOutput(output);
+      setCmdRunning('');
+    }, 300 + Math.random() * 500);
   };
 
   return (
@@ -158,18 +208,11 @@ export default function NetworkDashboard() {
             {isSimulated ? '🔴 Simulated' : '🟢 Live'}
           </button>
         </div>
-
         {targets.length > 0 && (
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn-primary" onClick={startPolling} style={{ height: 36 }}>
-              ▶ Start Monitoring
-            </button>
-            <button className="btn-secondary" onClick={stopPolling} style={{ height: 36 }}>
-              ⏹ Stop
-            </button>
-            <button className="btn-secondary" onClick={runAllChecks} disabled={loading} style={{ height: 36 }}>
-              {loading ? '⏳' : '🔄 Check Now'}
-            </button>
+            <button className="btn-primary" onClick={startPolling} style={{ height: 36 }}>▶ Start Monitoring</button>
+            <button className="btn-secondary" onClick={stopPolling} style={{ height: 36 }}>⏹ Stop</button>
+            <button className="btn-secondary" onClick={runAllChecks} disabled={loading} style={{ height: 36 }}>{loading ? '⏳' : '🔄 Check Now'}</button>
           </div>
         )}
       </div>
@@ -183,19 +226,13 @@ export default function NetworkDashboard() {
       )}
 
       {targets.length > 0 && (
-        <div className="card">
+        <div className="card" style={{ marginBottom: 24 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <h3 style={{ fontSize: 16, fontWeight: 600 }}>Monitored Targets ({targets.length})</h3>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
-              {intervalRef.current ? '🟢 Active' : '⏸ Paused'}
-            </span>
+            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{intervalRef.current ? '🟢 Active' : '⏸ Paused'}</span>
           </div>
-
           <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border-color)' }}>
-            <div style={{
-              display: 'flex', padding: '10px 14px', fontWeight: 600, fontSize: 13,
-              background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)',
-            }}>
+            <div style={{ display: 'flex', padding: '10px 14px', fontWeight: 600, fontSize: 13, background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border-color)' }}>
               <span style={{ flex: 0.5 }}>Type</span>
               <span style={{ flex: 2 }}>Target</span>
               <span style={{ flex: 1 }}>Status</span>
@@ -206,35 +243,58 @@ export default function NetworkDashboard() {
             {targets.map(t => {
               const check = checks.find(c => c.target === t.target && c.type === t.type);
               return (
-                <div key={t.id} style={{
-                  display: 'flex', padding: '10px 14px', fontSize: 13, alignItems: 'center',
-                  borderBottom: '1px solid var(--border-color)', background: check?.status === 'down' ? 'rgba(239,71,111,0.05)' : 'transparent',
-                }}>
+                <div key={t.id} style={{ display: 'flex', padding: '10px 14px', fontSize: 13, alignItems: 'center', borderBottom: '1px solid var(--border-color)', background: check?.status === 'down' ? 'rgba(239,71,111,0.05)' : 'transparent' }}>
                   <span style={{ flex: 0.5, fontSize: 18 }}>{getTypeIcon(t.type)}</span>
                   <span style={{ flex: 2, fontWeight: 600, wordBreak: 'break-all' }}>{t.target}</span>
                   <span style={{ flex: 1 }}>{check ? getStatusBadge(check.status) : <span className="badge" style={{ background: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}>—</span>}</span>
-                  <span style={{ flex: 1, color: 'var(--text-secondary)' }}>
-                    {check?.latency_ms ? `${Number(check.latency_ms).toFixed(1)} ms` : '—'}
-                  </span>
-                  <span style={{ flex: 1.5, color: 'var(--text-secondary)', fontSize: 12 }}>
-                    {check?.checked_at ? new Date(check.checked_at).toLocaleTimeString() : '—'}
-                  </span>
-                  <span style={{ flex: 0.5 }}>
-                    {check?.simulated && <span style={{ fontSize: 11, color: 'var(--warning)' }}>SIM</span>}
-                  </span>
-                  <button className="btn-sm" onClick={() => removeTarget(t.id)}
-                    style={{ color: 'var(--danger)', background: 'transparent', padding: '4px 8px' }}>✕</button>
+                  <span style={{ flex: 1, color: 'var(--text-secondary)' }}>{check?.latency_ms ? `${Number(check.latency_ms).toFixed(1)} ms` : '—'}</span>
+                  <span style={{ flex: 1.5, color: 'var(--text-secondary)', fontSize: 12 }}>{check?.checked_at ? new Date(check.checked_at).toLocaleTimeString() : '—'}</span>
+                  <span style={{ flex: 0.5 }}>{check?.simulated && <span style={{ fontSize: 11, color: 'var(--warning)' }}>SIM</span>}</span>
+                  <button className="btn-sm" onClick={() => removeTarget(t.id)} style={{ color: 'var(--danger)', background: 'transparent', padding: '4px 8px' }}>✕</button>
                 </div>
               );
             })}
           </div>
-
           <div style={{ marginTop: 12, display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
             <span>✅ Up: {checks.filter(c => c.status === 'up').length}</span>
             <span>❌ Down: {checks.filter(c => c.status === 'down').length}</span>
           </div>
         </div>
       )}
+
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: 'wrap', gap: 8 }}>
+          <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>💻 CMD Quick Diagnostics</h3>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input value={cmdTarget} onChange={e => setCmdTarget(e.target.value)}
+              placeholder="Target (e.g. google.com)" style={{ width: 180, fontSize: 12, padding: '6px 10px' }} />
+            <CopyButton text={cmdOutput} label="Copy" />
+          </div>
+        </div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 12 }}>
+          {CMD_QUICK.map((qc, i) => (
+            <button key={i} className="btn-secondary btn-sm" disabled={!!cmdRunning} onClick={() => runCmd(qc.cmd, qc.args || cmdTarget)}
+              style={{ fontSize: 11, padding: '4px 10px' }}>
+              {qc.icon} {qc.label}
+            </button>
+          ))}
+        </div>
+        {(cmdRunning || cmdOutput) && (
+          <div style={{
+            background: '#0c0c0c', color: '#c0c0c0', fontFamily: '"Consolas", "Courier New", monospace',
+            fontSize: 12, lineHeight: 1.6, padding: '12px 16px', borderRadius: 8,
+            maxHeight: 250, overflowY: 'auto', whiteSpace: 'pre-wrap',
+          }}>
+            {cmdRunning && <div style={{ color: '#e6db74' }}>{cmdRunning} {cmdTarget}... <span style={{ color: '#888' }}>▌</span></div>}
+            {cmdOutput && <div>{cmdOutput}</div>}
+          </div>
+        )}
+        {!cmdRunning && !cmdOutput && (
+          <div style={{ fontSize: 12, color: 'var(--text-secondary)', padding: '8px 0' }}>
+            Click a quick command button above or type a target to run diagnostics on a specific host.
+          </div>
+        )}
+      </div>
     </div>
   );
 }
