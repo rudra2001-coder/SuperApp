@@ -20,6 +20,7 @@ const tools = [
   { path: 'ssl-monitor', label: 'SSL Expiry Monitor', desc: 'Track SSL cert expiry with warnings', icon: '🔒' },
   { path: 'scan-campaigns', label: 'Scan Campaigns', desc: 'Recon campaigns: subdomain + port scan', icon: '🎯' },
   { path: 'preferences', label: 'Preferences', desc: 'User settings & history retention', icon: '⚙️' },
+  { path: 'cmd', label: 'CMD Console', desc: 'Windows-style terminal for ping, tracert, nslookup & more', icon: '💻' },
 ];
 
 export default function NetworkOverview() {

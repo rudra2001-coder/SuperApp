@@ -18,6 +18,7 @@ import NetworkDashboard from './NetworkDashboard';
 import SSLMonitor from './SSLMonitor';
 import ScanCampaigns from './ScanCampaigns';
 import Preferences from './Preferences';
+import CMDConsole from './CMDConsole';
 
 export default function NetworkTools() {
   return (
@@ -40,7 +41,8 @@ export default function NetworkTools() {
       <Route path="dashboard" element={<NetworkDashboard />} />
       <Route path="ssl-monitor" element={<SSLMonitor />} />
       <Route path="scan-campaigns" element={<ScanCampaigns />} />
-      <Route path="preferences" element={<Preferences />} />
+       <Route path="preferences" element={<Preferences />} />
+       <Route path="cmd" element={<CMDConsole />} />
     </Routes>
   );
 }
