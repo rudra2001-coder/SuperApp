@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 const tools = [
@@ -17,14 +18,25 @@ const tools = [
   { path: 'number-base', label: 'Number Base', desc: 'Bin/Oct/Dec/Hex converter', icon: '🔢' },
   { path: 'epoch-converter', label: 'Epoch Converter', desc: 'Timestamp ↔ date', icon: '🕐' },
   { path: 'regex-tester', label: 'Regex Tester', desc: 'Test & highlight regex matches', icon: '🔍' },
+  { path: 'pdf-to-excel', label: 'PDF to Excel', desc: 'Extract PDF text to Excel spreadsheets', icon: '📄➡️📊' },
 ];
 
 export default function UtilitiesOverview() {
+  const [search, setSearch] = useState('');
+  const filtered = tools.filter(t =>
+    t.label.toLowerCase().includes(search.toLowerCase()) ||
+    t.desc.toLowerCase().includes(search.toLowerCase())
+  );
+
   return (
     <div>
-      <h1 style={{ fontSize: 24, fontWeight: 700, marginBottom: 24 }}>🧰 Utilities</h1>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24, gap: 16, flexWrap: 'wrap' }}>
+        <h1 style={{ fontSize: 24, fontWeight: 700 }}>🧰 Utilities</h1>
+        <input value={search} onChange={e => setSearch(e.target.value)}
+          placeholder="🔍 Search utilities..." style={{ width: 240, fontSize: 13, padding: '8px 14px' }} />
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(180px, 1fr))', gap: 12 }}>
-        {tools.map(tool => (
+        {filtered.length > 0 ? filtered.map(tool => (
           <Link key={tool.path} to={tool.path} style={{ textDecoration: 'none' }}>
             <div className="card" style={{
               cursor: 'pointer', transition: 'transform 0.2s, box-shadow 0.2s', padding: 16,
@@ -38,7 +50,11 @@ export default function UtilitiesOverview() {
               <p style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{tool.desc}</p>
             </div>
           </Link>
-        ))}
+        )) : (
+          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: 40, color: 'var(--text-secondary)' }}>
+            No tools match "{search}"
+          </div>
+        )}
       </div>
     </div>
   );

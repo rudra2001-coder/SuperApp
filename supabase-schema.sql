@@ -109,6 +109,177 @@ CREATE POLICY "Users can manage their own data sessions"
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+-- HTTP request tester profiles & history
+CREATE TABLE IF NOT EXISTS http_profiles (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  data JSONB NOT NULL DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_http_profiles_user_id ON http_profiles(user_id);
+
+ALTER TABLE http_profiles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own http profiles" ON http_profiles;
+CREATE POLICY "Users can manage their own http profiles"
+  ON http_profiles FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- Subdomain discovery history
+CREATE TABLE IF NOT EXISTS subdomain_history (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  data JSONB NOT NULL DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_subdomain_history_user_id ON subdomain_history(user_id);
+
+ALTER TABLE subdomain_history ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own subdomain history" ON subdomain_history;
+CREATE POLICY "Users can manage their own subdomain history"
+  ON subdomain_history FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- Scenario definitions
+CREATE TABLE IF NOT EXISTS scenarios (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  data JSONB NOT NULL DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scenarios_user_id ON scenarios(user_id);
+
+ALTER TABLE scenarios ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own scenarios" ON scenarios;
+CREATE POLICY "Users can manage their own scenarios"
+  ON scenarios FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- Network status dashboard checks (realtime-enabled)
+CREATE TABLE IF NOT EXISTS network_checks (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  session_id UUID,
+  target TEXT NOT NULL,
+  type TEXT NOT NULL CHECK (type IN ('http', 'ping', 'ssl')),
+  status TEXT NOT NULL CHECK (status IN ('up', 'down', 'unknown')),
+  latency_ms NUMERIC,
+  checked_at TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_network_checks_session ON network_checks(session_id);
+CREATE INDEX IF NOT EXISTS idx_network_checks_checked ON network_checks(checked_at DESC);
+
+ALTER TABLE network_checks ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own network checks" ON network_checks;
+CREATE POLICY "Users can manage their own network checks"
+  ON network_checks FOR ALL
+  USING (session_id = auth.uid() OR session_id IS NULL)
+  WITH CHECK (session_id = auth.uid() OR session_id IS NULL);
+
+-- Enable realtime for network_checks
+-- Run: ALTER PUBLICATION supabase_realtime ADD TABLE network_checks;
+-- This is done via Supabase UI under Database > Replication
+
+-- SSL certificates monitor
+CREATE TABLE IF NOT EXISTS ssl_certificates (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  session_id UUID,
+  domain TEXT NOT NULL,
+  expires_at TIMESTAMPTZ,
+  days_left INTEGER,
+  issuer TEXT,
+  subject TEXT,
+  notify_expiry BOOLEAN DEFAULT true,
+  last_check TIMESTAMPTZ DEFAULT NOW(),
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ssl_certificates_session ON ssl_certificates(session_id);
+CREATE INDEX IF NOT EXISTS idx_ssl_certificates_expiry ON ssl_certificates(expires_at);
+
+ALTER TABLE ssl_certificates ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own ssl certificates" ON ssl_certificates;
+CREATE POLICY "Users can manage their own ssl certificates"
+  ON ssl_certificates FOR ALL
+  USING (session_id = auth.uid() OR session_id IS NULL)
+  WITH CHECK (session_id = auth.uid() OR session_id IS NULL);
+
+-- Scan campaigns (subdomain discovery + port scan)
+CREATE TABLE IF NOT EXISTS scan_campaigns (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  session_id UUID,
+  target_domain TEXT NOT NULL,
+  status TEXT DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed')),
+  ports INTEGER[] DEFAULT '{}',
+  results JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_campaigns_session ON scan_campaigns(session_id);
+
+ALTER TABLE scan_campaigns ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own scan campaigns" ON scan_campaigns;
+CREATE POLICY "Users can manage their own scan campaigns"
+  ON scan_campaigns FOR ALL
+  USING (session_id = auth.uid() OR session_id IS NULL)
+  WITH CHECK (session_id = auth.uid() OR session_id IS NULL);
+
+-- API collections (request tester collections)
+CREATE TABLE IF NOT EXISTS api_collections (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  session_id UUID,
+  name TEXT NOT NULL,
+  requests JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_api_collections_session ON api_collections(session_id);
+
+ALTER TABLE api_collections ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own api collections" ON api_collections;
+CREATE POLICY "Users can manage their own api collections"
+  ON api_collections FOR ALL
+  USING (session_id = auth.uid() OR session_id IS NULL)
+  WITH CHECK (session_id = auth.uid() OR session_id IS NULL);
+
+-- User profiles (linked to auth users for preference persistence)
+CREATE TABLE IF NOT EXISTS profiles (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  preferences JSONB DEFAULT '{}',
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_profiles_user_id ON profiles(user_id);
+
+ALTER TABLE profiles ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own profile" ON profiles;
+CREATE POLICY "Users can manage their own profile"
+  ON profiles FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
 -- Enable anonymous sign-ins (required for the app to work without login)
 -- Run this in Supabase Auth > Settings:
 -- Make sure "Allow anonymous sign-ins" is enabled

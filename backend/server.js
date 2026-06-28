@@ -700,5 +700,340 @@ app.get('/api/ssl-cert', (req, res) => {
   socket.on('timeout', () => { socket.destroy(); res.status(504).json({ error: 'Connection timed out', host, port }); });
 });
 
+// === SCAN CAMPAIGN (subdomain discovery + port scan) ===
+app.post('/api/scan-campaign', async (req, res) => {
+  const { domain, ports } = req.body;
+  if (!domain) return res.status(400).json({ error: 'Domain is required' });
+
+  let portList = ports || [21, 22, 23, 25, 53, 80, 110, 143, 443, 465, 587, 993, 995, 1433, 1521, 2049, 3306, 3389, 5432, 5900, 6379, 8080, 8443, 9090, 27017];
+  if (typeof portList === 'string') portList = portList.split(',').map(p => parseInt(p.trim())).filter(p => !isNaN(p));
+
+  const subdomains = [];
+  const seen = new Set();
+
+  // crt.sh
+  try {
+    const response = await fetch(`https://crt.sh/?q=%25.${domain}&output=json`, { timeout: 10000 });
+    const data = await response.json();
+    if (Array.isArray(data)) {
+      data.forEach(entry => {
+        const name = entry.name_value;
+        if (name && name.includes(domain) && !seen.has(name)) {
+          seen.add(name);
+          subdomains.push({ subdomain: name, source: 'crt.sh' });
+        }
+      });
+    }
+  } catch {}
+
+  // DNS brute force
+  const common = ['www', 'mail', 'ftp', 'admin', 'blog', 'shop', 'api', 'cdn', 'webmail', 'dev', 'staging', 'test', 'app', 'portal', 'm', 'mobile', 'news', 'forum', 'wiki', 'help', 'support', 'status', 'docs', 'demo', 'beta', 'vpn', 'ns1', 'ns2', 'mx', 'remote', 'git', 'jenkins', 'jira', 'confluence', 'smtp', 'imap', 'pop3', 'calendar', 'cloud', 'cp', 'cpanel', 'whm', 'autodiscover'];
+  for (const sub of common) {
+    const fqdn = `${sub}.${domain}`;
+    if (seen.has(fqdn)) continue;
+    seen.add(fqdn);
+    try {
+      await new Promise((resolve) => {
+        dns.resolve(fqdn, 'A', (err, addresses) => {
+          if (!err && addresses && addresses.length > 0) {
+            subdomains.push({ subdomain: fqdn, ips: addresses, source: 'brute' });
+          }
+          resolve();
+        });
+      });
+    } catch {}
+  }
+
+  // Port scan each subdomain
+  const results = [];
+  for (const sub of subdomains) {
+    const target = (sub.ips && sub.ips[0]) || sub.subdomain;
+    const openPorts = [];
+    for (const port of portList) {
+      try {
+        await new Promise((resolve, reject) => {
+          const socket = new net.Socket();
+          socket.setTimeout(2000);
+          socket.on('connect', () => { openPorts.push(port); socket.destroy(); resolve(); });
+          socket.on('timeout', () => { socket.destroy(); reject(); });
+          socket.on('error', () => { reject(); });
+          socket.connect(port, target);
+        });
+      } catch {}
+    }
+    results.push({ subdomain: sub.subdomain, ips: sub.ips || [], source: sub.source, open_ports: openPorts });
+  }
+
+  res.json({ domain, total: results.length, ports_scanned: portList.length, results });
+});
+
+// === HTTP REQUEST TESTER ===
+app.post('/api/http-test', async (req, res) => {
+  const { method = 'GET', url, headers = {}, body } = req.body;
+  if (!url) return res.status(400).json({ error: 'URL is required' });
+
+  let targetUrl = url;
+  if (!/^https?:\/\//i.test(targetUrl)) targetUrl = 'https://' + targetUrl;
+
+  try {
+    const parsed = new URL(targetUrl);
+    const client = parsed.protocol === 'https:' ? https : http;
+
+    const startTotal = Date.now();
+    const dnsStart = Date.now();
+
+    const options = {
+      hostname: parsed.hostname,
+      port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+      path: parsed.pathname + parsed.search,
+      method: method.toUpperCase(),
+      timeout: 15000,
+      headers: { 'User-Agent': 'SuperApp-NetworkTools/1.0', ...headers },
+    };
+
+    const dnsTime = Date.now() - dnsStart;
+
+    const reqHttp = client.request(options, (response) => {
+      const responseHeaders = {};
+      Object.entries(response.headers).forEach(([key, val]) => {
+        responseHeaders[key] = Array.isArray(val) ? val.join(', ') : String(val);
+      });
+
+      let responseBody = '';
+      const connectTime = Date.now() - startTotal;
+
+      response.on('data', chunk => { responseBody += chunk; });
+      response.on('end', () => {
+        const totalTime = Date.now() - startTotal;
+        const ttfb = connectTime;
+
+        res.json({
+          url: targetUrl,
+          method: method.toUpperCase(),
+          statusCode: response.statusCode,
+          statusMessage: response.statusMessage,
+          headers: responseHeaders,
+          body: responseBody.substring(0, 50000),
+          timing: {
+            dns: dnsTime,
+            connect: connectTime,
+            ttfb,
+            total: totalTime,
+          },
+        });
+      });
+    });
+
+    const connectStart = Date.now();
+    reqHttp.on('socket', (socket) => {
+      socket.on('lookup', () => {
+        const elapsed = Date.now() - connectStart;
+        options.dnsTime = elapsed;
+      });
+    });
+
+    reqHttp.on('error', (err) => res.status(500).json({ error: err.message, url: targetUrl }));
+    reqHttp.on('timeout', () => { reqHttp.destroy(); res.status(504).json({ error: 'Request timed out', url: targetUrl }); });
+
+    if (body && method.toUpperCase() !== 'GET' && method.toUpperCase() !== 'HEAD') {
+      reqHttp.write(body);
+    }
+    reqHttp.end();
+  } catch (err) {
+    res.status(400).json({ error: 'Invalid URL or request failed', detail: err.message });
+  }
+});
+
+// === SUBDOMAIN DISCOVERY ===
+app.get('/api/subdomain-discovery', async (req, res) => {
+  const { domain } = req.query;
+  if (!domain) return res.status(400).json({ error: 'Domain is required' });
+
+  const results = [];
+  const seen = new Set();
+
+  // Try crt.sh API
+  try {
+    const response = await fetch(`https://crt.sh/?q=%25.${domain}&output=json`, { timeout: 10000 });
+    const data = await response.json();
+    if (Array.isArray(data)) {
+      data.forEach(entry => {
+        const name = entry.name_value;
+        if (name && name.includes(domain) && !seen.has(name)) {
+          seen.add(name);
+          results.push({ subdomain: name, source: 'crt.sh' });
+        }
+      });
+    }
+  } catch {}
+
+  // Common subdomain wordlist (brute force)
+  const common = [
+    'www', 'mail', 'ftp', 'admin', 'blog', 'shop', 'api', 'cdn', 'webmail',
+    'dev', 'staging', 'test', 'app', 'portal', 'm', 'mobile', 'news', 'forum',
+    'wiki', 'help', 'support', 'status', 'docs', 'demo', 'beta', 'vpn', 'ns1',
+    'ns2', 'mx', 'remote', 'git', 'jenkins', 'jira', 'confluence', 'smtp',
+    'imap', 'pop3', 'calendar', 'cloud', 'cp', 'cpanel', 'whm', 'autodiscover',
+  ];
+
+  for (const sub of common) {
+    const fqdn = `${sub}.${domain}`;
+    if (seen.has(fqdn)) continue;
+    seen.add(fqdn);
+    try {
+      await new Promise((resolve, reject) => {
+        dns.resolve(fqdn, 'A', (err, addresses) => {
+          if (!err && addresses && addresses.length > 0) {
+            results.push({ subdomain: fqdn, ips: addresses, source: 'brute' });
+          }
+          resolve();
+        });
+      });
+    } catch {}
+  }
+
+  // Deduplicate by subdomain
+  const unique = [];
+  const subSeen = new Set();
+  results.forEach(r => {
+    if (!subSeen.has(r.subdomain)) {
+      subSeen.add(r.subdomain);
+      unique.push(r);
+    }
+  });
+
+  res.json({ domain, count: unique.length, subdomains: unique });
+});
+
+// === SCENARIO RUNNER ===
+app.post('/api/run-scenario', async (req, res) => {
+  const { steps } = req.body;
+  if (!steps || !Array.isArray(steps) || steps.length === 0) {
+    return res.status(400).json({ error: 'Steps array is required' });
+  }
+
+  const results = [];
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const stepResult = { step: i + 1, type: step.type, target: step.target, status: 'pending', timing: null, result: null, error: null };
+
+    try {
+      const start = Date.now();
+
+      if (step.type === 'dns') {
+        const records = await new Promise((resolve, reject) => {
+          const types = step.recordTypes || ['A', 'AAAA', 'MX', 'TXT', 'CNAME', 'NS'];
+          const dnsResults = [];
+          let pending = types.length;
+          types.forEach(type => {
+            dns.resolve(step.target, type, (err, addresses) => {
+              if (!err && addresses) {
+                addresses.forEach(addr => {
+                  dnsResults.push({ type, value: typeof addr === 'object' ? JSON.stringify(addr) : String(addr) });
+                });
+              }
+              pending--;
+              if (pending === 0) resolve(dnsResults);
+            });
+          });
+        });
+        stepResult.result = { records };
+        stepResult.status = 'success';
+
+      } else if (step.type === 'http') {
+        const method = step.method || 'GET';
+        let targetUrl = step.target;
+        if (!/^https?:\/\//i.test(targetUrl)) targetUrl = 'https://' + targetUrl;
+        const parsed = new URL(targetUrl);
+        const client = parsed.protocol === 'https:' ? https : http;
+        const httpResult = await new Promise((resolve, reject) => {
+          const opts = {
+            hostname: parsed.hostname,
+            port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+            path: parsed.pathname + parsed.search,
+            method,
+            timeout: 10000,
+            headers: { 'User-Agent': 'SuperApp-NetworkTools/1.0' },
+          };
+          const reqHttp2 = client.request(opts, (response) => {
+            let body = '';
+            response.on('data', c => { body += c; });
+            response.on('end', () => resolve({ statusCode: response.statusCode, body: body.substring(0, 1000) }));
+          });
+          reqHttp2.on('error', reject);
+          reqHttp2.on('timeout', () => { reqHttp2.destroy(); reject(new Error('Timeout')); });
+          reqHttp2.end();
+        });
+        stepResult.result = httpResult;
+        stepResult.status = httpResult.statusCode < 400 ? 'success' : 'warning';
+
+      } else if (step.type === 'ssl') {
+        const { host, port } = step.port ? { host: step.target, port: step.port } : (() => {
+          try {
+            const parsed = new URL(step.target.startsWith('http') ? step.target : 'https://' + step.target);
+            return { host: parsed.hostname, port: parsed.port || 443 };
+          } catch {
+            return { host: step.target, port: 443 };
+          }
+        })();
+        const certResult = await new Promise((resolve, reject) => {
+          const socket = tls.connect({ host, port, servername: host, rejectUnauthorized: false }, () => {
+            const cert = socket.getPeerCertificate(true);
+            const daysLeft = Math.floor((new Date(cert.valid_to) - new Date()) / (1000 * 60 * 60 * 24));
+            socket.end();
+            resolve({
+              subject: cert.subject?.CN || 'Unknown',
+              issuer: cert.issuer?.CN || 'Unknown',
+              validFrom: cert.valid_from,
+              validTo: cert.valid_to,
+              daysLeft,
+              expired: daysLeft < 0,
+            });
+          });
+          socket.setTimeout(10000);
+          socket.on('error', reject);
+        });
+        stepResult.result = certResult;
+        stepResult.status = certResult.expired ? 'error' : (certResult.daysLeft < 30 ? 'warning' : 'success');
+
+      } else if (step.type === 'headers') {
+        let targetUrl = step.target;
+        if (!/^https?:\/\//i.test(targetUrl)) targetUrl = 'https://' + targetUrl;
+        const parsed = new URL(targetUrl);
+        const client = parsed.protocol === 'https:' ? https : http;
+        const headerResult = await new Promise((resolve, reject) => {
+          const opts = {
+            hostname: parsed.hostname,
+            port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
+            path: parsed.pathname + parsed.search,
+            method: 'HEAD',
+            timeout: 10000,
+            headers: { 'User-Agent': 'SuperApp-NetworkTools/1.0' },
+          };
+          const reqHttp3 = client.request(opts, (response) => {
+            const hdrs = {};
+            Object.entries(response.headers).forEach(([k, v]) => { hdrs[k] = Array.isArray(v) ? v.join(', ') : String(v); });
+            resolve({ statusCode: response.statusCode, headers: hdrs });
+          });
+          reqHttp3.on('error', reject);
+          reqHttp3.on('timeout', () => { reqHttp3.destroy(); reject(new Error('Timeout')); });
+          reqHttp3.end();
+        });
+        stepResult.result = headerResult;
+        stepResult.status = 'success';
+      }
+
+      stepResult.timing = Date.now() - start;
+    } catch (err) {
+      stepResult.status = 'error';
+      stepResult.error = err.message;
+    }
+
+    results.push(stepResult);
+  }
+
+  res.json({ total: results.length, passed: results.filter(r => r.status === 'success').length, results });
+});
+
 const PORT = process.env.PORT || 3001;
 app.listen(PORT, () => console.log(`SuperApp backend running on port ${PORT}`));

@@ -14,6 +14,14 @@ const moduleLinks = {
     { path: '/network-tools/whois', label: 'WHOIS', icon: '🏛️' },
     { path: '/network-tools/traceroute', label: 'Traceroute', icon: '🗺️' },
     { path: '/network-tools/ip-info', label: 'IP Info', icon: '🖥️' },
+    { path: '/network-tools/http-requester', label: 'HTTP Request', icon: '📮' },
+    { path: '/network-tools/subdomain-discovery', label: 'Subdomains', icon: '🔍' },
+    { path: '/network-tools/network-calc', label: 'Net Calc', icon: '🧮' },
+    { path: '/network-tools/scenario-runner', label: 'Scenarios', icon: '🎯' },
+    { path: '/network-tools/dashboard', label: 'Dashboard', icon: '📊' },
+    { path: '/network-tools/ssl-monitor', label: 'SSL Monitor', icon: '🔒' },
+    { path: '/network-tools/scan-campaigns', label: 'Campaigns', icon: '🎯' },
+    { path: '/network-tools/preferences', label: 'Preferences', icon: '⚙️' },
   ],
   '/utilities': [
     { path: '/utilities', label: 'Overview', icon: '🧰' },
@@ -33,6 +41,7 @@ const moduleLinks = {
     { path: '/utilities/number-base', label: 'Number Base', icon: '🔢' },
     { path: '/utilities/epoch-converter', label: 'Epoch Converter', icon: '🕐' },
     { path: '/utilities/regex-tester', label: 'Regex Tester', icon: '🔍' },
+    { path: '/utilities/pdf-to-excel', label: 'PDF to Excel', icon: '📄' },
   ],
 };
 
