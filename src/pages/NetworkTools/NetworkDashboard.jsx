@@ -115,7 +115,7 @@ export default function NetworkDashboard() {
   const [error, setError] = useState('');
   const [newTarget, setNewTarget] = useState('');
   const [newType, setNewType] = useState('http');
-  const [isSimulated, setIsSimulated] = useState(true);
+  const [isSimulated, setIsSimulated] = useState(false);
   const intervalRef = useRef(null);
   const userId = session?.user?.id;
 

@@ -1,46 +1,23 @@
 import { useState } from 'react';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
-
-function simulateTraceroute(target) {
-  const hops = [];
-  const count = 5 + Math.floor(Math.random() * 10);
-  for (let i = 1; i <= count; i++) {
-    const octets = [
-      Math.floor(Math.random() * 256),
-      Math.floor(Math.random() * 256),
-      Math.floor(Math.random() * 256),
-      Math.floor(Math.random() * 256),
-    ];
-    hops.push({
-      hop: i,
-      ip: octets.join('.'),
-      hostname: `router-${i}.core.backbone.net`,
-      rtt1: (10 + Math.random() * 50).toFixed(1),
-      rtt2: (10 + Math.random() * 50).toFixed(1),
-      rtt3: (10 + Math.random() * 50).toFixed(1),
-    });
-  }
-  hops.push({
-    hop: count + 1,
-    ip: target,
-    hostname: target,
-    rtt1: (10 + Math.random() * 30).toFixed(1),
-    rtt2: (10 + Math.random() * 30).toFixed(1),
-    rtt3: (10 + Math.random() * 30).toFixed(1),
-  });
-  return hops;
-}
+import ErrorMessage from '../../components/common/ErrorMessage';
+import { traceroute } from '../../utils/api';
 
 export default function Traceroute() {
   const [target, setTarget] = useState('');
   const [hops, setHops] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   const trace = async () => {
     if (!target.trim()) return;
-    setLoading(true); setHops([]);
-    await new Promise(r => setTimeout(r, 1500));
-    setHops(simulateTraceroute(target.trim()));
+    setLoading(true); setError(''); setHops([]);
+    try {
+      const data = await traceroute(target.trim());
+      setHops(data.hops || []);
+    } catch {
+      setError('Traceroute request failed');
+    }
     setLoading(false);
   };
 
@@ -60,6 +37,7 @@ export default function Traceroute() {
         </div>
       </div>
 
+      {error && <ErrorMessage message={error} />}
       {loading && <LoadingSpinner text="Tracing route..." />}
 
       {hops.length > 0 && (

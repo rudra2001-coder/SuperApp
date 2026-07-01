@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import CopyButton from '../../components/common/CopyButton';
+import { runCmd } from '../../utils/api';
 
 const DEFAULT_PROMPT = 'C:\\Users\\Admin>';
 
@@ -501,27 +502,43 @@ export default function CMDConsole() {
     ? Math.round((outputRef.current.scrollHeight - outputRef.current.scrollTop - outputRef.current.clientHeight) / 20)
     : 0;
 
-  const run = useCallback((cmd) => {
+  const run = useCallback(async (cmd) => {
     const commandLine = cmd || input.trim();
     if (!commandLine) return;
     const newLines = [...lines, { text: `${prompt} ${commandLine}`, t: 'prompt' }];
-    const result = executeCommand(commandLine);
 
-    if (result.clear) {
-      setLines([{ text: 'Microsoft Windows [Version 10.0.19045.3803]', t: 'info' }, { text: '(c) Microsoft Corporation. All rights reserved.', t: 'info' }, { text: '', t: 'info' }, { text: `${prompt} `, t: 'prompt' }]);
-    } else if (result.color) {
-      setTermColors(['#0c0c0c', `#${result.color[1]}${result.color[1]}${result.color[1]}`]);
-    } else if (result.prompt) {
-      setPrompt(result.prompt);
-    } else {
-      const outputLines = result.output.split('\n').filter(l => l !== undefined).map(text => ({ text, t: 'output' }));
+    const firstWord = commandLine.split(/\s+/)[0]?.toLowerCase();
+    const realCmds = ['ping', 'tracert', 'traceroute', 'pathping', 'nslookup', 'netstat', 'ipconfig', 'arp', 'systeminfo', 'hostname', 'route', 'net', 'echo'];
+    let realOutput = null;
+    if (realCmds.includes(firstWord)) {
+      try {
+        const res = await runCmd(firstWord, commandLine.substring(firstWord.length).trim());
+        if (res && res.output && !res.error) realOutput = res.output;
+      } catch {}
+    }
+
+    if (realOutput) {
+      const outputLines = realOutput.split('\n').map(text => ({ text, t: 'output' }));
       if (!cmd) setHistory(h => [commandLine, ...h].slice(0, 50));
       setLines([...newLines, ...outputLines]);
+    } else {
+      const result = executeCommand(commandLine);
+      if (result.clear) {
+        setLines([{ text: 'Microsoft Windows [Version 10.0.19045.3803]', t: 'info' }, { text: '(c) Microsoft Corporation. All rights reserved.', t: 'info' }, { text: '', t: 'info' }, { text: `${prompt} `, t: 'prompt' }]);
+      } else if (result.color) {
+        setTermColors(['#0c0c0c', `#${result.color[1]}${result.color[1]}${result.color[1]}`]);
+      } else if (result.prompt) {
+        setPrompt(result.prompt);
+      } else {
+        const outputLines = result.output.split('\n').filter(l => l !== undefined).map(text => ({ text, t: 'output' }));
+        if (!cmd) setHistory(h => [commandLine, ...h].slice(0, 50));
+        setLines([...newLines, ...outputLines]);
+      }
     }
 
     if (cmd === 'cd' || cmd === 'chdir') {
       if (commandLine.includes('..')) setCwd('C:\\Users');
-      else if (commandLine.includes('\\') || commandLine.includes('/')) setCwd(`C:\\${args || ''}`);
+      else if (commandLine.includes('\\') || commandLine.includes('/')) setCwd(`C:\\${commandLine.split(/\s+/).slice(1).join(' ') || ''}`);
     }
 
     if (!cmd) { setInput(''); setHistoryIdx(-1); }

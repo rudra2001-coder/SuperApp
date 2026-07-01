@@ -3,6 +3,7 @@ import { useSupabaseStorage } from '../../hooks/useSupabaseStorage';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import CopyButton from '../../components/common/CopyButton';
+import { pingTarget } from '../../utils/api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
 
 export default function Ping() {
@@ -14,6 +15,7 @@ export default function Ping() {
   const [error, setError] = useState('');
   const [continuous, setContinuous] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showRaw, setShowRaw] = useState(false);
   const [history, setHistory] = useSupabaseStorage('ping_history', 'superapp-ping-history', []);
   const continuousRef = useRef(null);
 
@@ -21,57 +23,64 @@ export default function Ping() {
     setHistory([{ target, results: res, summary: sum, timestamp: new Date().toISOString() }, ...history].slice(0, 50));
   };
 
-  const simulatePing = async () => {
+  const runPing = async () => {
     if (!target.trim()) return;
     setLoading(true); setError(''); setResults([]); setSummary(null);
-    const pings = [];
-    for (let i = 0; i < count; i++) {
-      const latency = 10 + Math.random() * 190;
-      const lost = Math.random() > 0.9;
-      pings.push({
-        seq: i + 1,
-        time: lost ? null : latency,
-        status: lost ? 'Lost' : 'Success',
+    try {
+      const data = await pingTarget(target.trim(), count);
+      if (data.error) { setError(data.error); setLoading(false); return; }
+      const pings = (data.packets || []).map((p, i) => ({
+        seq: p.seq || i + 1,
+        time: p.time,
+        status: p.status || (p.time ? 'Success' : 'Lost'),
         timestamp: new Date().toLocaleTimeString(),
-      });
-      setResults([...pings]);
-      await new Promise(r => setTimeout(r, 200 + Math.random() * 300));
+      }));
+      if (pings.length === 0 && data.times?.length > 0) {
+        data.times.forEach((t, i) => pings.push({ seq: i + 1, time: t, status: 'Success', timestamp: new Date().toLocaleTimeString() }));
+      }
+      const successful = pings.filter(p => p.status === 'Success');
+      const times = successful.map(p => p.time);
+      const sum = {
+        sent: data.sent || count, received: data.received || successful.length,
+        loss: data.loss || ((count - successful.length) / count * 100).toFixed(1) + '%',
+        min: data.min != null ? data.min.toFixed(1) : '—',
+        max: data.max != null ? data.max.toFixed(1) : '—',
+        avg: data.avg != null ? data.avg.toFixed(1) : '—',
+        target: data.target || target,
+        raw: data.raw || '',
+      };
+      setResults(pings);
+      setSummary(sum);
+      addPingResult(target, pings, sum);
+    } catch (err) {
+      setError(err?.message || 'Ping request failed');
     }
-    const successful = pings.filter(p => p.status === 'Success');
-    const times = successful.map(p => p.time);
-    const loss = ((pings.length - successful.length) / pings.length * 100).toFixed(1);
-    const sum = {
-      sent: pings.length, received: successful.length, loss: `${loss}%`,
-      min: times.length ? Math.min(...times).toFixed(1) : '—',
-      max: times.length ? Math.max(...times).toFixed(1) : '—',
-      avg: times.length ? (times.reduce((a, b) => a + b, 0) / times.length).toFixed(1) : '—',
-      target,
-    };
-    setSummary(sum);
     setLoading(false);
-    addPingResult(target, pings, sum);
   };
 
   const startContinuous = async () => {
     if (!target.trim() || continuous) return;
     setContinuous(true); setError(''); setResults([]); setSummary(null);
     const pings = [];
-    let seq = 0;
-    const runPing = async () => {
-      while (continuousRef.current) {
-        seq++;
-        const latency = 10 + Math.random() * 190;
-        const lost = Math.random() > 0.9;
-        pings.push({
-          seq,
-          time: lost ? null : latency,
-          status: lost ? 'Lost' : 'Success',
+    let seqOffset = 0;
+    continuousRef.current = true;
+    const runOne = async () => {
+      if (!continuousRef.current) return;
+      try {
+        const data = await pingTarget(target.trim(), 1);
+        const pkts = (data.packets || []).map(p => ({
+          seq: (p.seq || 1) + seqOffset,
+          time: p.time,
+          status: p.status || (p.time ? 'Success' : 'Lost'),
           timestamp: new Date().toLocaleTimeString(),
-        });
-        if (pings.length > 50) pings.shift();
+        }));
+        if (pkts.length === 0) pkts.push({ seq: seqOffset + 1, time: data.times?.[0] || null, status: data.times?.length > 0 ? 'Success' : 'Lost', timestamp: new Date().toLocaleTimeString() });
+        seqOffset += pkts.length;
+        pkts.forEach(p => pings.push(p));
+        while (pings.length > 50) pings.shift();
+        setResults([...pings]);
         const successful = pings.filter(p => p.status === 'Success');
         const times = successful.map(p => p.time);
-        setResults([...pings]);
         setSummary({
           sent: pings.length, received: successful.length,
           loss: ((pings.length - successful.length) / pings.length * 100).toFixed(1) + '%',
@@ -79,12 +88,12 @@ export default function Ping() {
           max: times.length ? Math.max(...times).toFixed(1) : '—',
           avg: times.length ? (times.reduce((a, b) => a + b, 0) / times.length).toFixed(1) : '—',
           target,
+          raw: data.raw || '',
         });
-        await new Promise(r => setTimeout(r, 1000));
-      }
+      } catch {}
+      setTimeout(runOne, 1000);
     };
-    continuousRef.current = true;
-    runPing();
+    runOne();
   };
 
   const stopContinuous = () => {
@@ -105,14 +114,14 @@ export default function Ping() {
         <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ flex: 1, minWidth: 200 }}>
             <input value={target} onChange={e => setTarget(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && !continuous && simulatePing()}
+              onKeyDown={e => e.key === 'Enter' && !continuous && runPing()}
               placeholder="e.g. 8.8.8.8 or google.com" style={{ width: '100%' }} />
           </div>
           <div style={{ width: 100 }}>
             <input type="number" min={1} max={20} value={count} onChange={e => setCount(Number(e.target.value))}
               disabled={continuous} style={{ width: '100%' }} />
           </div>
-          <button className="btn-primary" onClick={simulatePing} disabled={loading || continuous} style={{ height: 40 }}>
+              <button className="btn-primary" onClick={runPing} disabled={loading || continuous} style={{ height: 40 }}>
             {loading ? '⏳' : '🚀 Ping'}
           </button>
           <button className={continuous ? 'btn-danger' : 'btn-secondary'}
@@ -194,9 +203,28 @@ export default function Ping() {
         </div>
       )}
 
+      {summary?.raw && (
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <h3 style={{ fontSize: 16, fontWeight: 600, margin: 0 }}>📋 Ping Trace Log</h3>
+            <button className="btn-secondary btn-sm" onClick={() => setShowRaw(!showRaw)} style={{ height: 30 }}>
+              {showRaw ? 'Hide' : 'Show'} Raw
+            </button>
+          </div>
+          {showRaw && (
+            <pre style={{
+              background: '#0c0c0c', color: '#c0c0c0', padding: 12, borderRadius: 6,
+              fontSize: 12, fontFamily: 'monospace', maxHeight: 300, overflowY: 'auto',
+              whiteSpace: 'pre-wrap', wordBreak: 'break-all',
+            }}>{summary.raw}</pre>
+          )}
+          <div style={{ marginTop: 8 }}><CopyButton text={summary.raw} label="Copy Raw Output" /></div>
+        </div>
+      )}
+
       {results.length > 0 && (
         <div className="card">
-          <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>Log</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 600, marginBottom: 12 }}>📶 Packet Log</h3>
           <div style={{ maxHeight: 200, overflowY: 'auto' }}>
             {results.map((r, i) => (
               <div key={i} style={{

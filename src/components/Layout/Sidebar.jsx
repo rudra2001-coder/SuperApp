@@ -21,6 +21,11 @@ const moduleLinks = {
     { path: '/network-tools/dashboard', label: 'Dashboard', icon: '📊' },
     { path: '/network-tools/ssl-monitor', label: 'SSL Monitor', icon: '🔒' },
     { path: '/network-tools/scan-campaigns', label: 'Campaigns', icon: '🎯' },
+    { path: '/network-tools/http-headers', label: 'HTTP Headers', icon: '🌐' },
+    { path: '/network-tools/ssl-cert', label: 'SSL Cert Check', icon: '🔒' },
+    { path: '/network-tools/snmp', label: 'SNMP Checker', icon: '📡' },
+    { path: '/network-tools/mikrotik', label: 'MikroTik Check', icon: '🖧' },
+    { path: '/network-tools/cmd', label: 'CMD Console', icon: '💻' },
     { path: '/network-tools/preferences', label: 'Preferences', icon: '⚙️' },
   ],
   '/utilities': [

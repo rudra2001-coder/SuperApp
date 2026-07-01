@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useSupabaseStorage } from '../../hooks/useSupabaseStorage';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
+import ErrorMessage from '../../components/common/ErrorMessage';
 import CopyButton from '../../components/common/CopyButton';
+import { scanPorts } from '../../utils/api';
 
 const SERVICE_DB = {
   20: 'FTP-data', 21: 'FTP', 22: 'SSH', 23: 'Telnet', 25: 'SMTP', 53: 'DNS',
@@ -26,6 +28,7 @@ export default function PortScanner() {
   const [customPorts, setCustomPorts] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
   const [progress, setProgress] = useState(0);
   const [savedScans, setSavedScans] = useSupabaseStorage('port_scans', 'superapp-port-scans', []);
   const [showSaved, setShowSaved] = useState(false);
@@ -43,29 +46,29 @@ export default function PortScanner() {
 
   const scan = async () => {
     if (!target.trim()) return;
-    setLoading(true); setResults([]); setProgress(0);
+    setLoading(true); setError(''); setResults([]); setProgress(5);
     const ports = getPortsToScan();
-    const scanResults = [];
-    for (let i = 0; i < ports.length; i++) {
-      const port = ports[i];
-      const isOpen = Math.random() > 0.65;
-      const isFiltered = !isOpen && Math.random() > 0.5;
-      const service = SERVICE_DB[port] || 'Unknown';
-      const protos = [21, 22, 23, 25, 53, 80, 110, 143, 389, 443, 993, 995, 3306, 5432, 8080, 8443].includes(port) ? 'tcp' : 'tcp';
-      scanResults.push({
-        port,
-        service,
-        protocol: protos,
-        status: isOpen ? 'open' : isFiltered ? 'filtered' : 'closed',
-      });
-      setProgress(((i + 1) / ports.length * 100).toFixed(0));
-      setResults([...scanResults]);
-      await new Promise(r => setTimeout(r, 2));
+    if (ports.length > 500) {
+      setError(`Scanning ${ports.length} ports may take several minutes. Consider a smaller range.`);
+    }
+    try {
+      const data = await scanPorts(target.trim(), ports);
+      const scanResults = (data.results || []).map(r => ({
+        port: r.port,
+        status: r.status,
+        service: SERVICE_DB[r.port] || 'Unknown',
+        protocol: 'tcp',
+      }));
+      setResults(scanResults);
+      setProgress(100);
+      const open = scanResults.filter(r => r.status === 'open').length;
+      const closed = scanResults.filter(r => r.status === 'closed').length;
+      const filtered = scanResults.filter(r => r.status === 'filtered').length;
+      setSavedScans([{ target: data.target, ports: scanResults, open, closed, filtered, timestamp: new Date().toISOString() }, ...savedScans].slice(0, 20));
+    } catch (err) {
+      setError(err?.message || 'Port scan request failed');
     }
     setLoading(false);
-    const open = scanResults.filter(r => r.status === 'open').length;
-    const closed = scanResults.filter(r => r.status === 'closed').length;
-    setSavedScans([{ target, ports: scanResults, open, closed, timestamp: new Date().toISOString() }, ...savedScans].slice(0, 20));
   };
 
   const loadSavedScan = (scan) => {
@@ -116,7 +119,7 @@ export default function PortScanner() {
             </div>
           )}
           <button className="btn-primary" onClick={scan} disabled={loading} style={{ height: 40 }}>
-            {loading ? `Scanning ${progress}%` : '🔍 Scan'}
+            {loading ? `⏳ Scanning ${progress}%` : '🔍 Scan'}
           </button>
           <button className="btn-secondary" onClick={() => setShowSaved(!showSaved)} style={{ height: 40 }}>
             📂 Saved ({savedScans.length})
@@ -133,12 +136,14 @@ export default function PortScanner() {
               borderBottom: '1px solid var(--border-color)', fontSize: 13, cursor: 'pointer',
             }} onClick={() => loadSavedScan(s)}>
               <span style={{ fontWeight: 600 }}>{s.target}</span>
-              <span>{s.open} open · {s.closed} closed</span>
+              <span>{s.open} open · {s.closed} closed{s.filtered != null ? ` · ${s.filtered} filtered` : ''}</span>
               <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>{new Date(s.timestamp).toLocaleDateString()}</span>
             </div>
           ))}
         </div>
       )}
+
+      {error && <ErrorMessage message={error} />}
 
       {loading && (
         <div style={{ height: 6, background: 'var(--bg-secondary)', borderRadius: 3, marginBottom: 16, overflow: 'hidden' }}>

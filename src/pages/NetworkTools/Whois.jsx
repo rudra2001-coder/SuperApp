@@ -2,6 +2,29 @@ import { useState } from 'react';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import CopyButton from '../../components/common/CopyButton';
+import { whoisLookup } from '../../utils/api';
+
+function extractFields(raw) {
+  const f = raw || {};
+  const ns = f.name_servers ? f.name_servers.split(/\s+/).filter(Boolean) : [];
+  const emails = [];
+  if (f.registrar_abuse_contact_email) emails.push(f.registrar_abuse_contact_email);
+  if (f.admin_email) emails.push(f.admin_email);
+  if (f.tech_email) emails.push(f.tech_email);
+  return {
+    domain: f.domain_name || f.query || '',
+    registrar: f.registrar || f.registrar_name || '—',
+    created: f.creation_date || f.created_date || f.created || '—',
+    expires: f.expiration_date || f.expiry_date || f.expires || '—',
+    updated: f.updated_date || f.last_update || f.updated || '—',
+    nameServers: ns.length > 0 ? ns : ['—'],
+    registrant: f.registrant_name || f.registrant_organization || f.registrant || '—',
+    organization: f.registrant_organization || f.org || '—',
+    country: f.registrant_country || f.country || '—',
+    state: f.registrant_state_province || f.state || '—',
+    emails: emails.length > 0 ? emails : ['—'],
+  };
+}
 
 function simulateWhois(query) {
   const base = query.replace(/^www\./, '');
@@ -30,8 +53,8 @@ export default function Whois() {
     if (!query.trim()) return;
     setLoading(true); setError(''); setData(null);
     try {
-      await new Promise(r => setTimeout(r, 800));
-      setData(simulateWhois(query.trim()));
+      const res = await whoisLookup(query.trim());
+      setData(extractFields(res.data));
     } catch {
       setError('WHOIS lookup failed');
     }
@@ -73,16 +96,17 @@ export default function Whois() {
             <h3 style={{ fontSize: 16, fontWeight: 600 }}>Results for {data.domain}</h3>
             <CopyButton text={JSON.stringify(data, null, 2)} />
           </div>
+          <Field label="Domain" value={data.domain} />
           <Field label="Registrar" value={data.registrar} />
           <Field label="Created" value={data.created} />
           <Field label="Expiration" value={data.expires} />
           <Field label="Updated" value={data.updated} />
-          <Field label="Name Servers" value={data.nameServers.join(', ')} />
+          <Field label="Name Servers" value={data.nameServers?.join(', ')} />
           <Field label="Registrant" value={data.registrant} />
           <Field label="Organization" value={data.organization} />
           <Field label="Country" value={data.country} />
           <Field label="State" value={data.state} />
-          <Field label="Abuse Email" value={data.emails.join(', ')} />
+          <Field label="Abuse Email" value={data.emails?.join(', ')} />
         </div>
       )}
     </div>

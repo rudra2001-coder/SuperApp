@@ -38,29 +38,47 @@ app.post('/api/ping', async (req, res) => {
   const { target, count = 4 } = req.body;
   if (!target) return res.status(400).json({ error: 'Target is required' });
   if (isServerless) {
-    return res.json({ status: 'simulated', note: 'Real ping not available in serverless. Using simulated data.', sent: count, received: count, loss: '0%', times: Array.from({ length: count }, () => 10 + Math.random() * 190), min: 0, max: 0, avg: 0 });
+    const simTimes = Array.from({ length: count }, () => 10 + Math.random() * 190);
+    const simPkts = simTimes.map((t, i) => ({ seq: i + 1, time: t, status: 'Success' }));
+    return res.json({ status: 'reachable', target, sent: count, received: count, loss: '0%', times: simTimes, packets: simPkts, raw: '', min: Math.min(...simTimes), max: Math.max(...simTimes), avg: simTimes.reduce((a, b) => a + b, 0) / count, note: 'Simulated (serverless)' });
   }
   try {
     const cmd = process.platform === 'win32' ? `ping -n ${count} ${target}` : `ping -c ${count} ${target}`;
     const { stdout } = await execAsync(cmd);
     const lines = stdout.split('\n');
+    const packets = [];
     const times = [];
     lines.forEach(line => {
-      const match = line.match(/time[=<](\d+\.?\d*)\s*ms/i);
-      if (match) times.push(parseFloat(match[1]));
+      const winMatch = line.match(/Reply from\s+(\S+):\s*bytes=\d+\s+time[=<](\d+\.?\d*)\s*ms\s+TTL=(\d+)/i);
+      if (winMatch) {
+        packets.push({ seq: packets.length + 1, ip: winMatch[1], time: parseFloat(winMatch[2]), ttl: parseInt(winMatch[3]), status: 'Success' });
+        times.push(parseFloat(winMatch[2]));
+        return;
+      }
+      const nixMatch = line.match(/(\d+)\s*bytes from\s+(\S+):\s*icmp_seq=(\d+)\s+ttl=(\d+)\s+time[=<](\d+\.?\d*)\s*ms/i);
+      if (nixMatch) {
+        packets.push({ seq: parseInt(nixMatch[3]), ip: nixMatch[2], time: parseFloat(nixMatch[5]), ttl: parseInt(nixMatch[4]), status: 'Success' });
+        times.push(parseFloat(nixMatch[5]));
+        return;
+      }
+      if (line.match(/Request timed out/i) || line.match(/Destination host unreachable/i)) {
+        packets.push({ seq: packets.length + 1, time: null, status: 'Lost' });
+      }
     });
-    const lost = lines.find(l => l.includes('loss')) || '';
-    const lossMatch = lost.match(/(\d+)%/);
+    const lostLine = lines.find(l => l.includes('loss')) || '';
+    const lossMatch = lostLine.match(/(\d+)%/);
     res.json({
       status: times.length > 0 ? 'reachable' : 'unreachable',
+      target,
       sent: count, received: times.length,
-      loss: lossMatch ? lossMatch[1] + '%' : '0%', times,
+      loss: lossMatch ? lossMatch[1] + '%' : ((count - times.length) / count * 100).toFixed(0) + '%',
+      times, packets, raw: stdout,
       min: times.length ? Math.min(...times) : null,
       max: times.length ? Math.max(...times) : null,
       avg: times.length ? (times.reduce((a, b) => a + b, 0) / times.length) : null,
     });
   } catch {
-    res.json({ status: 'unreachable', sent: count, received: 0, loss: '100%', times: [] });
+    res.json({ status: 'unreachable', sent: count, received: 0, loss: '100%', times: [], packets: [], raw: '' });
   }
 });
 
@@ -136,24 +154,28 @@ app.get('/api/whois', (req, res) => {
 app.get('/api/traceroute', async (req, res) => {
   const { target } = req.query;
   if (!target) return res.status(400).json({ error: 'Target required' });
-  if (isServerless) return res.json({ target, hops: [], note: 'Traceroute requires shell access — not available in serverless.' });
+  if (isServerless) return res.json({ target, hops: [], raw: '', note: 'Traceroute requires shell access — not available in serverless.' });
   try {
     const cmd = process.platform === 'win32' ? `tracert -d ${target}` : `traceroute -n ${target}`;
     const { stdout } = await execAsync(cmd, { timeout: 30000 });
     const lines = stdout.split('\n');
     const hops = [];
     lines.forEach(line => {
-      const match = line.match(/^\s*(\d+)\s+<?(\d+\.\d+\.\d+\.\d+|\*)\s+/);
-      if (match) {
-        hops.push({
-          hop: parseInt(match[1]),
-          ip: match[2] === '*' ? 'Request timed out' : match[2],
-          rtt: match[2] === '*' ? '*' : (line.match(/<?(\d+\.?\d*)\s*ms/) || [])[1] || '*',
-        });
-      }
+      const hopMatch = line.match(/^\s*(\d+)\s+/);
+      if (!hopMatch) return;
+      const rtts = line.match(/<?(\d+|<?1)\.?\d*\s*ms/g) || [];
+      const ipMatch = line.match(/((?:\d{1,3}\.){3}\d{1,3})/);
+      hops.push({
+        hop: parseInt(hopMatch[1]),
+        ip: ipMatch ? ipMatch[1] : '*',
+        rtt1: rtts[0] ? rtts[0].replace(/[<>\s]/g, '') : '*',
+        rtt2: rtts[1] ? rtts[1].replace(/[<>\s]/g, '') : '*',
+        rtt3: rtts[2] ? rtts[2].replace(/[<>\s]/g, '') : '*',
+        hostname: line.split(/\s{2,}/).pop()?.trim() || '',
+      });
     });
-    res.json({ target, hops });
-  } catch { res.json({ target, hops: [], note: 'Traceroute failed' }); }
+    res.json({ target, hops, raw: stdout });
+  } catch { res.json({ target, hops: [], raw: '', note: 'Traceroute failed' }); }
 });
 
 app.get('/api/ip-info', async (req, res) => {
@@ -1012,6 +1034,22 @@ app.post('/api/run-scenario', async (req, res) => {
   }
 
   res.json({ total: results.length, passed: results.filter(r => r.status === 'success').length, results });
+});
+
+// === CMD CONSOLE (safe command execution) ===
+const SAFE_CMDS = ['ping', 'tracert', 'traceroute', 'pathping', 'nslookup', 'netstat', 'ipconfig', 'arp', 'systeminfo', 'hostname', 'route', 'date', 'time', 'ver', 'whoami', 'net', 'echo'];
+app.post('/api/cmd', async (req, res) => {
+  const { command, args } = req.body;
+  if (!command) return res.status(400).json({ error: 'Command required' });
+  if (!SAFE_CMDS.includes(command)) return res.status(403).json({ error: `Command '${command}' not allowed` });
+  if (isServerless) return res.json({ output: `\n  '${command}' cannot run in serverless mode.\n`, command, args, error: true });
+  try {
+    const fullCmd = process.platform === 'win32' ? `${command} ${args || ''}` : command === 'tracert' ? `traceroute ${args || ''}` : `${command} ${args || ''}`;
+    const { stdout, stderr } = await execAsync(fullCmd, { timeout: 30000, shell: true });
+    res.json({ output: stdout + stderr, command, args, error: false });
+  } catch (e) {
+    res.json({ output: e.stdout || e.stderr || e.message, command, args, error: true });
+  }
 });
 
 // === ISP EXCEL VALIDATOR ===

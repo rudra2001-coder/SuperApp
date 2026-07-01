@@ -2,43 +2,9 @@ import { useState } from 'react';
 import LoadingSpinner from '../../components/common/LoadingSpinner';
 import ErrorMessage from '../../components/common/ErrorMessage';
 import CopyButton from '../../components/common/CopyButton';
+import { dnsLookup } from '../../utils/api';
 
 const RECORD_TYPES = ['A', 'AAAA', 'MX', 'TXT', 'CNAME', 'NS', 'SOA', 'SRV'];
-
-function simulateDNS(domain, type) {
-  const records = [];
-  const base = domain.replace(/^www\./, '');
-  const ipBase = `${100 + Math.floor(Math.random() * 50)}.${Math.floor(Math.random() * 255)}`;
-  if (type === 'A') {
-    records.push({ type: 'A', name: domain, value: `${ipBase}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`, ttl: 60 + Math.floor(Math.random() * 300) });
-    records.push({ type: 'A', name: domain, value: `${ipBase}.${Math.floor(Math.random() * 255)}.${Math.floor(Math.random() * 255)}`, ttl: 60 + Math.floor(Math.random() * 300) });
-  }
-  if (type === 'AAAA') {
-    records.push({ type: 'AAAA', name: domain, value: '2607:f8b0:4000:0800:0000:0000:0000:200e', ttl: 300 });
-  }
-  if (type === 'MX') {
-    records.push({ type: 'MX', name: domain, value: 'mail.' + base, priority: 10, ttl: 300 });
-    records.push({ type: 'MX', name: domain, value: 'alt1.mail.' + base, priority: 20, ttl: 300 });
-  }
-  if (type === 'TXT') {
-    records.push({ type: 'TXT', name: domain, value: 'v=spf1 include:_spf.' + base + ' ~all', ttl: 300 });
-    records.push({ type: 'TXT', name: domain, value: 'google-site-verification=xxxxxxxxx', ttl: 300 });
-  }
-  if (type === 'CNAME') {
-    records.push({ type: 'CNAME', name: 'www.' + base, value: domain, ttl: 300 });
-  }
-  if (type === 'NS') {
-    records.push({ type: 'NS', name: domain, value: 'ns1.' + base, ttl: 86400 });
-    records.push({ type: 'NS', name: domain, value: 'ns2.' + base, ttl: 86400 });
-  }
-  if (type === 'SOA') {
-    records.push({ type: 'SOA', name: domain, value: 'ns1.' + base + ' admin.' + base + ' 2024062401 7200 3600 1209600 3600', ttl: 86400 });
-  }
-  if (type === 'SRV') {
-    records.push({ type: 'SRV', name: '_sip._tcp.' + domain, value: '0 5 5060 sip.' + base, ttl: 300 });
-  }
-  return records;
-}
 
 export default function DNSLookup() {
   const [domain, setDomain] = useState('');
@@ -54,8 +20,9 @@ export default function DNSLookup() {
     if (!domain.trim()) return;
     setLoading(true); setError(''); setRecords([]);
     try {
-      await new Promise(r => setTimeout(r, 400));
-      setRecords(simulateDNS(domain.trim(), activeTab));
+      const data = await dnsLookup(domain.trim());
+      const filtered = (data.records || []).filter(r => r.type === activeTab);
+      setRecords(filtered.length > 0 ? filtered : data.records || []);
     } catch { setError('DNS lookup failed'); }
     setLoading(false);
   };
@@ -66,11 +33,15 @@ export default function DNSLookup() {
     setLoading(true); setError(''); setBulkResults([]);
     const results = [];
     for (const d of domains) {
-      await new Promise(r => setTimeout(r, 200));
-      const a = simulateDNS(d, 'A').map(r => r.value);
-      const mx = simulateDNS(d, 'MX').map(r => r.value);
-      const ns = simulateDNS(d, 'NS').map(r => r.value);
-      results.push({ domain: d, a: a.join(', '), mx: mx.join(', '), ns: ns.join(', ') });
+      try {
+        const data = await dnsLookup(d);
+        const a = data.records?.filter(r => r.type === 'A').map(r => r.value).join(', ') || '';
+        const mx = data.records?.filter(r => r.type === 'MX').map(r => r.value).join(', ') || '';
+        const ns = data.records?.filter(r => r.type === 'NS').map(r => r.value).join(', ') || '';
+        results.push({ domain: d, a: a || '—', mx: mx || '—', ns: ns || '—' });
+      } catch {
+        results.push({ domain: d, a: 'Error', mx: 'Error', ns: 'Error' });
+      }
       setBulkResults([...results]);
     }
     setLoading(false);

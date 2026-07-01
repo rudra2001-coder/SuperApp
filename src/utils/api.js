@@ -85,6 +85,11 @@ export async function runScenario(steps) {
   return data;
 }
 
+export async function runCmd(command, args) {
+  const { data } = await api.post('/api/cmd', { command, args });
+  return data;
+}
+
 export async function fetchPublicIPInfo() {
   try {
     const { data } = await axios.get('https://ipapi.co/json/', { timeout: 10000 });
