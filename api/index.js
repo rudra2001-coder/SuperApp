@@ -2,14 +2,15 @@ const express = require('express');
 const cors = require('cors');
 const dns = require('dns');
 const net = require('net');
-const whois = require('whois');
+let whois;
+try { whois = require('whois'); } catch { whois = null; }
 const { RouterOSClient } = require('mikro-routeros');
 const snmp = require('net-snmp');
 const https = require('https');
 const http = require('http');
 const tls = require('tls');
 const multer = require('multer');
-const { validateAll, autoFixAll, dataToSheet, parseFile, validateHeaders } = require('./isp-validator');
+const { validateAll, autoFixAll, dataToSheet, parseFile, validateHeaders } = require('./_isp-validator');
 
 const isServerless = !process.env.PORT || !!process.env.VERCEL;
 const upload = multer({
@@ -113,6 +114,7 @@ app.get('/api/dns', (req, res) => {
 });
 
 app.get('/api/whois', (req, res) => {
+  if (!whois) return res.status(500).json({ error: 'whois module not available' });
   const { query } = req.query;
   if (!query) return res.status(400).json({ error: 'Query required' });
   whois.lookup(query, (err, data) => {

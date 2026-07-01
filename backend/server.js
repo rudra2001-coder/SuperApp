@@ -3,7 +3,8 @@ const cors = require('cors');
 const { exec } = require('child_process');
 const dns = require('dns');
 const net = require('net');
-const whois = require('whois');
+let whois;
+try { whois = require('whois'); } catch { whois = null; }
 const { RouterOSClient } = require('mikro-routeros');
 const snmp = require('net-snmp');
 const https = require('https');
@@ -101,6 +102,7 @@ app.get('/api/dns', (req, res) => {
 });
 
 app.get('/api/whois', (req, res) => {
+  if (!whois) return res.status(500).json({ error: 'whois module not available' });
   const { query } = req.query;
   if (!query) return res.status(400).json({ error: 'Query required' });
   whois.lookup(query, (err, data) => {
