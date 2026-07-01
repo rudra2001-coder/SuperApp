@@ -19,6 +19,7 @@ const tools = [
   { path: 'epoch-converter', label: 'Epoch Converter', desc: 'Timestamp ↔ date', icon: '🕐' },
   { path: 'regex-tester', label: 'Regex Tester', desc: 'Test & highlight regex matches', icon: '🔍' },
   { path: 'excel-validator', label: 'Excel Validator', desc: 'Validate Excel structure & data types', icon: '✅' },
+  { path: 'isp-excel-validator', label: 'ISP Excel Validator', desc: 'Validate & auto-fix ISP client Excel data', icon: '📊' },
   { path: 'pdf-to-excel', label: 'PDF to Excel', desc: 'Extract PDF text to Excel spreadsheets', icon: '📄➡️📊' },
 ];
 

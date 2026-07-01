@@ -8,8 +8,14 @@ const snmp = require('net-snmp');
 const https = require('https');
 const http = require('http');
 const tls = require('tls');
+const multer = require('multer');
+const { validateAll, autoFixAll, dataToSheet, parseFile, validateHeaders } = require('./isp-validator');
 
 const isServerless = !process.env.PORT || !!process.env.VERCEL;
+const upload = multer({
+  storage: multer.memoryStorage(),
+    limits: { fileSize: 100 * 1024 * 1024 },
+});
 
 function execAsync(cmd, opts = {}) {
   if (isServerless) return Promise.reject(new Error('exec not available in serverless'));
@@ -24,7 +30,8 @@ function execAsync(cmd, opts = {}) {
 
 const app = express();
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '100mb' }));
+app.use(express.urlencoded({ limit: '100mb', extended: true }));
 
 app.post('/api/ping', async (req, res) => {
   const { target, count = 4 } = req.body;
@@ -1003,6 +1010,105 @@ app.post('/api/run-scenario', async (req, res) => {
   }
 
   res.json({ total: results.length, passed: results.filter(r => r.status === 'success').length, results });
+});
+
+// === ISP EXCEL VALIDATOR ===
+app.post('/api/isp/validate', (req, res, next) => {
+  upload.single('file')(req, res, err => {
+    if (err instanceof multer.MulterError) {
+      if (err.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'File too large. Maximum size is 100 MB.' });
+      return res.status(400).json({ error: err.message });
+    }
+    if (err) return res.status(500).json({ error: err.message });
+    next();
+  });
+}, async (req, res) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded.' });
+    const templateType = req.body.templateType;
+    if (!templateType || !['admin', 'mac'].includes(templateType)) {
+      return res.status(400).json({ error: 'templateType must be "admin" or "mac".' });
+    }
+
+    const parsed = parseFile(req.file.buffer);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+    const headerCheck = validateHeaders(parsed.headers, templateType);
+    if (!headerCheck.valid) {
+      const issues = [];
+      if (headerCheck.missing.length > 0) issues.push(`Missing columns: ${headerCheck.missing.join(', ')}`);
+      if (headerCheck.duplicates.length > 0) issues.push(`Duplicate columns: ${headerCheck.duplicates.join(', ')}`);
+      return res.status(400).json({
+        error: 'Header mismatch.',
+        details: issues.join('; '),
+        headerCheck,
+      });
+    }
+
+    const result = validateAll(parsed.rows, templateType);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/isp/validate-from-url', async (req, res) => {
+  try {
+    const { fileUrl, templateType } = req.body;
+    if (!fileUrl) return res.status(400).json({ error: 'fileUrl is required.' });
+    if (!templateType || !['admin', 'mac'].includes(templateType)) {
+      return res.status(400).json({ error: 'templateType must be "admin" or "mac".' });
+    }
+
+    const response = await fetch(fileUrl, { timeout: 30000 });
+    if (!response.ok) return res.status(400).json({ error: `Failed to fetch file from storage: ${response.statusText}` });
+
+    const buffer = Buffer.from(await response.arrayBuffer());
+    const parsed = parseFile(buffer);
+    if (parsed.error) return res.status(400).json({ error: parsed.error });
+
+    const headerCheck = validateHeaders(parsed.headers, templateType);
+    if (!headerCheck.valid) {
+      const issues = [];
+      if (headerCheck.missing.length > 0) issues.push(`Missing columns: ${headerCheck.missing.join(', ')}`);
+      if (headerCheck.duplicates.length > 0) issues.push(`Duplicate columns: ${headerCheck.duplicates.join(', ')}`);
+      return res.status(400).json({ error: 'Header mismatch.', details: issues.join('; '), headerCheck });
+    }
+
+    const result = validateAll(parsed.rows, templateType);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/isp/autofix', async (req, res) => {
+  try {
+    const { data, templateType } = req.body;
+    if (!data || !templateType) return res.status(400).json({ error: 'data and templateType are required.' });
+    if (!['admin', 'mac'].includes(templateType)) {
+      return res.status(400).json({ error: 'templateType must be "admin" or "mac".' });
+    }
+
+    const result = autoFixAll(data, templateType);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/isp/download', async (req, res) => {
+  try {
+    const { data, templateType } = req.body;
+    if (!data || !templateType) return res.status(400).json({ error: 'data and templateType are required.' });
+
+    const buf = dataToSheet(data, templateType);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="fixed-clients.xlsx"');
+    res.send(buf);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 const PORT = process.env.PORT || 3001;

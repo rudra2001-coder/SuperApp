@@ -18,6 +18,7 @@ import EpochConverter from './EpochConverter';
 import RegexTester from './RegexTester';
 import PDFToExcel from './PDFToExcel';
 import ExcelValidator from './ExcelValidator';
+import IspExcelValidator from './IspExcelValidator';
 
 export default function Utilities() {
   return (
@@ -41,6 +42,7 @@ export default function Utilities() {
       <Route path="regex-tester" element={<RegexTester />} />
       <Route path="pdf-to-excel" element={<PDFToExcel />} />
       <Route path="excel-validator" element={<ExcelValidator />} />
+      <Route path="isp-excel-validator" element={<IspExcelValidator />} />
     </Routes>
   );
 }

@@ -280,6 +280,57 @@ CREATE POLICY "Users can manage their own profile"
   USING (auth.uid() = user_id)
   WITH CHECK (auth.uid() = user_id);
 
+-- ISP Excel Validator history
+CREATE TABLE IF NOT EXISTS isp_validations (
+  id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  template_type TEXT NOT NULL CHECK (template_type IN ('admin', 'mac')),
+  file_name TEXT NOT NULL DEFAULT '',
+  file_url TEXT DEFAULT '',
+  total_rows INTEGER DEFAULT 0,
+  error_count INTEGER DEFAULT 0,
+  warning_count INTEGER DEFAULT 0,
+  valid_count INTEGER DEFAULT 0,
+  auto_fix_count INTEGER DEFAULT 0,
+  data JSONB NOT NULL DEFAULT '[]',
+  errors JSONB DEFAULT '[]',
+  warnings JSONB DEFAULT '[]',
+  status TEXT DEFAULT 'completed' CHECK (status IN ('processing', 'completed', 'failed')),
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_isp_validations_user_id ON isp_validations(user_id);
+CREATE INDEX IF NOT EXISTS idx_isp_validations_created ON isp_validations(created_at DESC);
+
+ALTER TABLE isp_validations ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Users can manage their own isp validations" ON isp_validations;
+CREATE POLICY "Users can manage their own isp validations"
+  ON isp_validations FOR ALL
+  USING (auth.uid() = user_id)
+  WITH CHECK (auth.uid() = user_id);
+
+-- ============================================================
+-- Storage bucket for ISP Excel uploads
+-- ============================================================
+INSERT INTO storage.buckets (id, name, public) VALUES ('isp-uploads', 'isp-uploads', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- Allow authenticated and anonymous users to upload files to isp-uploads
+DROP POLICY IF EXISTS "Give users access to own folder isp-uploads" ON storage.objects;
+CREATE POLICY "Give users access to own folder isp-uploads"
+  ON storage.objects FOR ALL
+  USING (bucket_id = 'isp-uploads' AND auth.role() = 'authenticated')
+  WITH CHECK (bucket_id = 'isp-uploads' AND auth.role() = 'authenticated');
+
+-- Also allow anonymous users (needed for anonymous sign-in mode)
+DROP POLICY IF EXISTS "Give anonymous access to isp-uploads" ON storage.objects;
+CREATE POLICY "Give anonymous access to isp-uploads"
+  ON storage.objects FOR ALL
+  USING (bucket_id = 'isp-uploads' AND auth.role() = 'anon')
+  WITH CHECK (bucket_id = 'isp-uploads' AND auth.role() = 'anon');
+
 -- Enable anonymous sign-ins (required for the app to work without login)
 -- Run this in Supabase Auth > Settings:
 -- Make sure "Allow anonymous sign-ins" is enabled

@@ -3,11 +3,14 @@
   "version": "1.0.0",
   "description": "Vercel serverless API for SuperApp network tools",
   "dependencies": {
-    "express": "^4.18.2",
+    "axios": "^1.18.1",
     "cors": "^2.8.5",
-    "whois": "^2.14.0",
+    "express": "^4.18.2",
     "mikro-routeros": "^1.0.6",
+    "multer": "^2.2.0",
     "net-snmp": "^3.26.1",
-    "axios": "^1.18.1"
+    "validator": "^13.15.35",
+    "whois": "^2.14.0",
+    "xlsx": "^0.18.5"
   }
 }

@@ -42,6 +42,7 @@ const moduleLinks = {
     { path: '/utilities/epoch-converter', label: 'Epoch Converter', icon: '🕐' },
     { path: '/utilities/regex-tester', label: 'Regex Tester', icon: '🔍' },
     { path: '/utilities/pdf-to-excel', label: 'PDF to Excel', icon: '📄' },
+    { path: '/utilities/isp-excel-validator', label: 'ISP Excel Validator', icon: '✅' },
   ],
 };
 
