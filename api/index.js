@@ -1060,7 +1060,14 @@ app.post('/api/isp/validate-from-url', async (req, res) => {
       return res.status(400).json({ error: 'templateType must be "admin" or "mac".' });
     }
 
-    const response = await fetch(fileUrl, { timeout: 30000 });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+    let response;
+    try {
+      response = await fetch(fileUrl, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
     if (!response.ok) return res.status(400).json({ error: `Failed to fetch file from storage: ${response.statusText}` });
 
     const buffer = Buffer.from(await response.arrayBuffer());
@@ -1078,7 +1085,8 @@ app.post('/api/isp/validate-from-url', async (req, res) => {
     const result = validateAll(parsed.rows, templateType);
     res.json(result);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    console.error('validate-from-url error:', err?.message || err?.name || err);
+    res.status(500).json({ error: err.message || 'Validation failed' });
   }
 });
 
