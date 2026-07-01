@@ -30,6 +30,11 @@ export default function IspExcelValidator() {
   const [validation, setValidation] = useState(null);
   const [focusCell, setFocusCell] = useState(null);
   const [editedData, setEditedData] = useState(null);
+  const getErrMsg = (err) => {
+    const val = err?.response?.data?.error || err?.response?.data?.details || err?.message || err?.statusText || '';
+    return typeof val === 'string' ? val : val?.message || JSON.stringify(val);
+  };
+
   const [error, setError] = useState('');
   const [activeTab, setActiveTab] = useState('all');
   const [dragging, setDragging] = useState(false);
@@ -221,8 +226,7 @@ export default function IspExcelValidator() {
       setValidation(validationResult);
       setTimelineStep(2);
     } catch (err) {
-      const msg = err.response?.data?.error || err.response?.data?.details || err.message;
-      setError(msg);
+      setError(getErrMsg(err));
       setValidation(null);
       setTimelineStep(0);
     } finally {
@@ -286,7 +290,7 @@ export default function IspExcelValidator() {
         });
       }
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(getErrMsg(err));
     } finally {
       setLoading(false);
     }
@@ -325,7 +329,7 @@ export default function IspExcelValidator() {
       window.URL.revokeObjectURL(url);
       setTimelineStep(5);
     } catch (err) {
-      setError(err.response?.data?.error || err.message);
+      setError(getErrMsg(err));
     } finally { setLoading(false); }
   }
 
