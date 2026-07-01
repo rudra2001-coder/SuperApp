@@ -86,6 +86,13 @@ function isValidDateFormat(val) {
   return d !== null;
 }
 
+function isValidExpDate(val) {
+  if (!val || String(val).trim() === '') return false;
+  const s = String(val).trim();
+  if (/^(0?[1-9]|[12][0-9]|3[01])$/.test(s)) return true;
+  return isValidDateFormat(s);
+}
+
 function isValidBillMonth(val) {
   if (!val || String(val).trim() === '') return false;
   return /^(0[1-9]|1[0-2])-\d{4}$/.test(String(val).trim());
@@ -201,8 +208,13 @@ function validateRow(row, template, rowIndex) {
         }
         break;
       }
+      case 'Exp.Date': {
+        if (!isValidExpDate(val)) {
+          errors.push({ column: col.name, message: `Invalid expiry date. Expected DD-MM-YYYY or a day number (1-31).` });
+        }
+        break;
+      }
       case 'Join.Date':
-      case 'Exp.Date':
       case 'DateOfBirth(Opt.)':
       case 'V.ToDate': {
         if (!isValidDateFormat(val)) {
@@ -212,6 +224,25 @@ function validateRow(row, template, rowIndex) {
       }
     }
   });
+
+  if (row['Exp.Date']) {
+    const ed = parseDate(row['Exp.Date']);
+    const isDayNum = /^(0?[1-9]|[12][0-9]|3[01])$/.test(String(row['Exp.Date']).trim());
+    if (ed) {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (ed < today) {
+        warnings.push({ column: 'Exp.Date', message: 'Exp.Date is in the past — subscription may have expired.' });
+      }
+      const oneYearFromNow = new Date(today);
+      oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+      if (ed > oneYearFromNow) {
+        warnings.push({ column: 'Exp.Date', message: 'Exp.Date is more than 1 year away — verify correctness.' });
+      }
+    } else if (!isDayNum) {
+      warnings.push({ column: 'Exp.Date', message: 'Exp.Date is not a recognizable date format.' });
+    }
+  }
 
   if (row['Join.Date'] && row['Exp.Date']) {
     const jd = parseDate(row['Join.Date']);
@@ -284,8 +315,19 @@ function autoFixRow(row, templateType) {
         }
         break;
       }
+      case 'Exp.Date': {
+        const dayMatch = String(newVal).trim().match(/^(0?[1-9]|[12][0-9]|3[01])$/);
+        if (dayMatch) {
+          newVal = dayMatch[1];
+        } else {
+          const pd = parseDate(newVal);
+          if (pd) {
+            newVal = formatDate(pd);
+          }
+        }
+        break;
+      }
       case 'Join.Date':
-      case 'Exp.Date':
       case 'DateOfBirth(Opt.)':
       case 'V.ToDate': {
         const pd = parseDate(newVal);
